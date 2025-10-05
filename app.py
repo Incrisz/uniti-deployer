@@ -52,6 +52,11 @@ def git_capture(args: List[str]) -> str:
     return process.stdout.strip()
 
 
+@app.route("/")
+def index() -> str:
+    return render_template("index.html", deploy_url=url_for("deploy"))
+
+
 @app.route("/deploy", methods=["GET", "POST"])
 def deploy() -> str:
     if request.method == "GET":

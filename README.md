@@ -11,7 +11,8 @@ This Flask web app exposes a `/deploy` route that lets you trigger a service upd
 Expose the host’s port 5000 publicly only if your firewall/network rules allow it.
 
 ## File Overview
-- `app.py` – Flask app with the `/deploy` route and command execution logic.
+- `app.py` – Flask app with the landing page and `/deploy` route plus command execution logic.
+- `templates/index.html` – Home page with a button that links to the deployment form.
 - `templates/deploy_form.html` – Confirmation form shown before deployment.
 - `templates/deploy_result.html` – Displays command logs and Git summary after execution.
 - `requirements.txt` – Python dependencies (Flask).
