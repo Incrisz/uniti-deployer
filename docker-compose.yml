@@ -2,8 +2,7 @@ services:
   deployer:
     build: .
     ports:
-      - "5000:5000"
-    container_name: uniti-deployer
+      - "0.0.0.0:5000:5000"
     volumes:
       - /root/uniti-model-service:/root/uniti-model-service
     restart: unless-stopped
