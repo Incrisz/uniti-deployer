@@ -21,11 +21,11 @@ class CommandResult:
     stderr: str
 
 
-def run_command(label: str, args: List[str]) -> CommandResult:
-    """Run the given command inside the model service repo."""
+def run_command(label: str, command: str) -> CommandResult:
+    """Run the given command inside the model service repo using bash for PATH loading."""
     try:
         process = subprocess.run(
-            args,
+            ["/bin/bash", "-lc", command],
             cwd=REPO_PATH,
             capture_output=True,
             text=True,
@@ -36,12 +36,12 @@ def run_command(label: str, args: List[str]) -> CommandResult:
         returncode = process.returncode
     except FileNotFoundError as exc:
         stdout = ""
-        stderr = f"Command not found: {args[0]} ({exc})"
+        stderr = f"Command not found while running '{command}': {exc}"
         returncode = -1
 
     return CommandResult(
         label=label,
-        command=" ".join(args),
+        command=command,
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
@@ -97,15 +97,15 @@ def deploy() -> str:
         )
 
     commands = [
-        ("Stop service", ["docker", "compose", "down"]),
-        ("Pull latest changes", ["git", "pull"]),
-        ("Start service", ["docker", "compose", "up", "-d"]),
+        ("Stop service", "docker compose down"),
+        ("Pull latest changes", "git pull"),
+        ("Start service", "docker compose up -d"),
     ]
 
     results: List[CommandResult] = []
     success = True
-    for label, args in commands:
-        result = run_command(label, args)
+    for label, command in commands:
+        result = run_command(label, command)
         results.append(result)
         if result.returncode != 0:
             success = False

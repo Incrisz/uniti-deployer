@@ -4,5 +4,6 @@ services:
     ports:
       - "0.0.0.0:5000:5000"
     volumes:
+      - ./:/app
       - /root/uniti-model-service:/root/uniti-model-service
     restart: unless-stopped
