@@ -12,14 +12,15 @@
   <body>
     <h1>Deploy Uniti Model Service</h1>
     <p>
-      This action will run <code>{{ compose_command }} down</code>, <code>git pull</code>, and
-      <code>{{ compose_command }} up -d</code> inside <code>{{ repo_path }}</code>.
+      This action will execute <code>{{ script_path }}</code>, which should handle stopping
+      the running containers, pulling new code, and starting the Intervention service again
+      inside <code>{{ repo_path }}</code>.
     </p>
     <form method="post">
       <p>Do you want to deploy to the server now?</p>
       <label>
         <input type="radio" name="confirm" value="yes" required />
-        Yes, run the deployment commands.
+        Yes, run the deployment script.
       </label>
       <br />
       <label>

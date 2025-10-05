@@ -11,7 +11,9 @@ from flask import Flask, render_template, request, url_for
 
 app = Flask(__name__)
 
+BASE_DIR = Path(__file__).resolve().parent
 REPO_PATH = Path("/root/uniti-model-service")
+SCRIPT_PATH = BASE_DIR / "deploy_pipeline.sh"
 DEFAULT_PATH_SEGMENTS = [
     "/usr/local/sbin",
     "/usr/local/bin",
@@ -57,15 +59,6 @@ def find_missing_binaries(env: Dict[str, str]) -> List[str]:
     return missing
 
 
-def resolve_compose_command(env: Dict[str, str]) -> Optional[str]:
-    search_path = env.get("PATH", "")
-    if shutil.which("docker", path=search_path):
-        return "docker compose"
-    if shutil.which("docker-compose", path=search_path):
-        return "docker-compose"
-    return None
-
-
 def run_command(
     label: str,
     command: str,
@@ -76,7 +69,7 @@ def run_command(
     try:
         process = subprocess.run(
             ["/bin/bash", "-lc", command],
-            cwd=REPO_PATH,
+            cwd=BASE_DIR,
             capture_output=True,
             text=True,
             check=False,
@@ -118,12 +111,6 @@ def git_capture(args: List[str], env: Optional[Dict[str, str]] = None) -> str:
     return process.stdout.strip()
 
 
-def compose_command_hint() -> str:
-    exec_env = build_execution_env()
-    command = resolve_compose_command(exec_env)
-    return command or "docker compose"
-
-
 @app.route("/")
 def index() -> str:
     return render_template("index.html", deploy_url=url_for("deploy"))
@@ -135,7 +122,7 @@ def deploy() -> str:
         return render_template(
             "deploy_form.html",
             repo_path=REPO_PATH,
-            compose_command=compose_command_hint(),
+            script_path=SCRIPT_PATH,
         )
 
     confirm = request.form.get("confirm")
@@ -159,11 +146,18 @@ def deploy() -> str:
             back_url=url_for("deploy"),
         )
 
+    if not SCRIPT_PATH.exists():
+        return render_template(
+            "deploy_result.html",
+            success=False,
+            message=f"Deployment script {SCRIPT_PATH} not found",
+            command_results=[],
+            git_summary={},
+            back_url=url_for("deploy"),
+        )
+
     exec_env = build_execution_env()
     missing = find_missing_binaries(exec_env)
-    compose_command = resolve_compose_command(exec_env)
-    if compose_command is None:
-        missing.append("docker or docker-compose")
     if missing:
         missing_list = ", ".join(missing)
         return render_template(
@@ -180,9 +174,7 @@ def deploy() -> str:
         )
 
     commands = [
-        ("Stop service", f"{compose_command} down"),
-        ("Pull latest changes", "git pull"),
-        ("Start service", f"{compose_command} up -d"),
+        ("Run deployment script", f"bash \"{SCRIPT_PATH}\""),
     ]
 
     results: List[CommandResult] = []
