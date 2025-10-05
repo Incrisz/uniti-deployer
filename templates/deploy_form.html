@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Deploy Uniti Model Service</title>
+    <style>
+      body { font-family: sans-serif; max-width: 40rem; margin: 3rem auto; }
+      form { margin-top: 2rem; padding: 1.5rem; background: #f7f7f7; border-radius: 8px; }
+      button { padding: 0.6rem 1.2rem; font-size: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Deploy Uniti Model Service</h1>
+    <p>This action will run <code>make down</code>, <code>git pull</code>, and <code>make up</code> inside <code>{{ repo_path }}</code>.</p>
+    <form method="post">
+      <p>Do you want to deploy to the server now?</p>
+      <label>
+        <input type="radio" name="confirm" value="yes" required />
+        Yes, run the deployment commands.
+      </label>
+      <br />
+      <label>
+        <input type="radio" name="confirm" value="no" />
+        No, cancel.
+      </label>
+      <div style="margin-top: 1.5rem;">
+        <button type="submit">Submit</button>
+      </div>
+    </form>
+  </body>
+</html>

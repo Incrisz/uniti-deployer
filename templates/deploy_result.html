@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Deployment Status</title>
+    <style>
+      body { font-family: sans-serif; max-width: 60rem; margin: 3rem auto; }
+      .status { padding: 1rem; border-radius: 8px; }
+      .status.success { background: #e8f5e9; border: 1px solid #2e7d32; }
+      .status.failure { background: #ffebee; border: 1px solid #c62828; }
+      pre { padding: 1rem; background: #f0f0f0; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }
+      .command-card { margin-top: 1.5rem; border: 1px solid #ddd; border-radius: 6px; padding: 1rem; }
+      .command-card h2 { margin-top: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="status {{ 'success' if success else 'failure' }}">
+      <h1>{{ message }}</h1>
+    </div>
+
+    {% if command_results %}
+      <section>
+        <h2>Command Output</h2>
+        {% for result in command_results %}
+          <div class="command-card">
+            <h3>{{ result.label }} ({{ result.command }})</h3>
+            <p>Exit code: {{ result.returncode }}</p>
+            {% if result.stdout %}
+              <h4>STDOUT</h4>
+              <pre>{{ result.stdout }}</pre>
+            {% endif %}
+            {% if result.stderr %}
+              <h4>STDERR</h4>
+              <pre>{{ result.stderr }}</pre>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% if git_summary %}
+      <section>
+        <h2>Git Summary</h2>
+        <p><strong>Branch:</strong> {{ git_summary.branch }}</p>
+        <p><strong>Latest commit:</strong></p>
+        <pre>{{ git_summary.latest_commit }}</pre>
+        <p><strong>Changed files:</strong></p>
+        <pre>{{ git_summary.changes or 'No changes detected' }}</pre>
+      </section>
+    {% endif %}
+
+    <p><a href="{{ back_url }}">Back to deploy page</a></p>
+  </body>
+</html>
