@@ -4,6 +4,6 @@ services:
     ports:
       - "0.0.0.0:5000:5000"
     volumes:
-      - ./:/app
       - /root/uniti-model-service:/root/uniti-model-service
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

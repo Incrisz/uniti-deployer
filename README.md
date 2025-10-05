@@ -1,14 +1,17 @@
 # Uniti Deployment Helper
 
-This Flask web app exposes a `/deploy` route that lets you trigger a service update from your browser. Confirming the prompt executes `docker compose down`, `git pull`, and `docker compose up -d` inside `/root/uniti-model-service` and streams command output plus Git metadata back to the page.
+This Flask web app exposes a `/deploy` route that lets you trigger a service update from your browser. Confirming the prompt executes Docker Compose commands (`docker compose` or `docker-compose`), `git pull`, and brings the service back up inside `/root/uniti-model-service`, streaming command output plus Git metadata back to the page.
 
 ## Setup
 - Install dependencies: `pip install -r requirements.txt`
 - Run the server locally: `python app.py`
-- Or build and run the container: `docker build -t uniti-deployer .` then `docker run --rm -p 5000:5000 -v /root/uniti-model-service:/root/uniti-model-service uniti-deployer`
+- Or build and run the container: `docker build -t uniti-deployer .` then `docker run --rm -p 5000:5000 -v /root/uniti-model-service:/root/uniti-model-service -v /var/run/docker.sock:/var/run/docker.sock uniti-deployer`
 - Or launch with Docker Compose: `docker compose up --build`
 
+If you run the helper in Docker, make sure the container can reach the Docker CLI and plugin (install them in the image or bind-mount the host binaries alongside the socket).
+
 Expose the host’s port 5000 publicly only if your firewall/network rules allow it.
+Ensure `git` plus either `docker` (with the compose plugin) or `docker-compose` are installed and on the PATH for whichever user runs the app.
 
 ## File Overview
 - `app.py` – Flask app with the landing page and `/deploy` route plus command execution logic.

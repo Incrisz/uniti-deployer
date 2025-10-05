@@ -11,7 +11,10 @@
   </head>
   <body>
     <h1>Deploy Uniti Model Service</h1>
-    <p>This action will run <code>docker compose down</code>, <code>git pull</code>, and <code>docker compose up -d</code> inside <code>{{ repo_path }}</code>.</p>
+    <p>
+      This action will run <code>{{ compose_command }} down</code>, <code>git pull</code>, and
+      <code>{{ compose_command }} up -d</code> inside <code>{{ repo_path }}</code>.
+    </p>
     <form method="post">
       <p>Do you want to deploy to the server now?</p>
       <label>
