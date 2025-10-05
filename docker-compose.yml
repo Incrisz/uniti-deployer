@@ -6,4 +6,6 @@ services:
     volumes:
       - /root/uniti-model-service:/root/uniti-model-service
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/lib/docker/cli-plugins:/usr/lib/docker/cli-plugins:ro
     restart: unless-stopped

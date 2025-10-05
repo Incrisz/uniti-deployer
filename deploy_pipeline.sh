@@ -34,6 +34,7 @@ elif command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_CMD=(docker-compose)
 else
   log "ERROR: Neither 'docker compose' nor 'docker-compose' is available on PATH."
+  log "Hint: if the helper runs inside Docker, bind-mount the host's docker binary and CLI plugins (e.g. /usr/bin/docker and /usr/lib/docker/cli-plugins)."
   exit 127
 fi
 
