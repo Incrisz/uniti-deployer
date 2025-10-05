@@ -1,6 +1,6 @@
 # Uniti Deployment Helper
 
-This Flask web app exposes a `/deploy` route that lets you trigger a service update from your browser. Confirming the prompt executes `make down`, `git pull`, and `make up` inside `/root/uniti-model-service` and streams command output plus Git metadata back to the page.
+This Flask web app exposes a `/deploy` route that lets you trigger a service update from your browser. Confirming the prompt executes `docker compose down`, `git pull`, and `docker compose up -d` inside `/root/uniti-model-service` and streams command output plus Git metadata back to the page.
 
 ## Setup
 - Install dependencies: `pip install -r requirements.txt`

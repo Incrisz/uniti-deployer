@@ -23,30 +23,43 @@ class CommandResult:
 
 def run_command(label: str, args: List[str]) -> CommandResult:
     """Run the given command inside the model service repo."""
-    process = subprocess.run(
-        args,
-        cwd=REPO_PATH,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        process = subprocess.run(
+            args,
+            cwd=REPO_PATH,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        stdout = process.stdout.strip()
+        stderr = process.stderr.strip()
+        returncode = process.returncode
+    except FileNotFoundError as exc:
+        stdout = ""
+        stderr = f"Command not found: {args[0]} ({exc})"
+        returncode = -1
+
     return CommandResult(
         label=label,
         command=" ".join(args),
-        returncode=process.returncode,
-        stdout=process.stdout.strip(),
-        stderr=process.stderr.strip(),
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
     )
 
 
 def git_capture(args: List[str]) -> str:
-    process = subprocess.run(
-        ["git", *args],
-        cwd=REPO_PATH,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        process = subprocess.run(
+            ["git", *args],
+            cwd=REPO_PATH,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return f"(git not available: {exc})"
+
     if process.returncode != 0:
         return f"(git {' '.join(args)} failed)\n{process.stderr.strip()}"
     return process.stdout.strip()
@@ -84,9 +97,9 @@ def deploy() -> str:
         )
 
     commands = [
-        ("Stop service", ["make", "down"]),
+        ("Stop service", ["docker", "compose", "down"]),
         ("Pull latest changes", ["git", "pull"]),
-        ("Start service", ["make", "up"]),
+        ("Start service", ["docker", "compose", "up", "-d"]),
     ]
 
     results: List[CommandResult] = []
