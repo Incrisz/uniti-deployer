@@ -119,8 +119,10 @@ def deploy():
     ]
     steps.append(_run_command(aws_command))
 
-    status_code = 200 if steps[-1]["returncode"] == 0 else 500
-    return jsonify({"success": status_code == 200, "steps": steps}), status_code
+    success = steps[-1]["returncode"] == 0
+    status_code = 200 if success else 500
+    message = "Deployment completed successfully." if success else "Deployment failed. Check the logs above."
+    return jsonify({"success": success, "message": message, "steps": steps}), status_code
 
 
 if __name__ == "__main__":
