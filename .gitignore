@@ -1,0 +1,25 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+*.zip
+
+# Logs and coverage
+*.log
+.coverage
+
+# OS-specific files
+.DS_Store
+Thumbs.db
