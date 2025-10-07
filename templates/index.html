@@ -1,21 +1,98 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <title>Uniti Deployment Helper</title>
-    <meta name="description" content="Uniti Deployment Helper provides a one-click gateway to trigger the intervention server deployment script with live command logs and git status." />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lambda Deployment</title>
     <style>
-      body { font-family: sans-serif; max-width: 40rem; margin: 3rem auto; text-align: center; }
-      .card { padding: 2rem; border: 1px solid #ddd; border-radius: 10px; background: #fdfdfd; }
-      a.button { display: inline-block; margin-top: 1.5rem; padding: 0.8rem 1.6rem; background: #1976d2; color: #fff; text-decoration: none; border-radius: 6px; font-size: 1.1rem; }
-      a.button:hover { background: #165fa5; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        margin: 2rem auto;
+        max-width: 600px;
+        line-height: 1.5;
+      }
+
+      button {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 4px;
+        background: #2563eb;
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      pre {
+        background: #111827;
+        color: #f3f4f6;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+      }
+
+      .hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
-    <div class="card">
-      <h1>Uniti Deployment Helper</h1>
-      <p>Trigger the pipeline to auto-deploy the Intervention server.</p>
-      <a class="button" href="{{ deploy_url }}">Click to trigger deployment</a>
+    <h1>Deploy Lambda</h1>
+    <p>Trigger a deployment by pulling the latest code and updating AWS Lambda.</p>
+    <button id="deploy-btn">Deploy</button>
+
+    <div id="result" class="hidden">
+      <h2>Deployment Result</h2>
+      <pre id="output"></pre>
     </div>
+
+    <script>
+      const button = document.getElementById("deploy-btn");
+      const resultContainer = document.getElementById("result");
+      const output = document.getElementById("output");
+
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        output.textContent = "Deploying...";
+        resultContainer.classList.remove("hidden");
+
+        try {
+          const response = await fetch("/deploy", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          });
+          const data = await response.json();
+
+          const formattedSteps = data.steps
+            .map((step) => {
+              const lines = [`$ ${step.command}`];
+              if (step.stdout) {
+                lines.push(step.stdout);
+              }
+              if (step.stderr) {
+                lines.push(`stderr: ${step.stderr}`);
+              }
+              lines.push(`exit code: ${step.returncode}`);
+              return lines.join("\n");
+            })
+            .join("\n\n");
+
+          output.textContent = formattedSteps;
+
+          if (!data.success) {
+            alert("Deployment failed. Check output for details.");
+          }
+        } catch (error) {
+          output.textContent = `Unexpected error: ${error}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
   </body>
 </html>

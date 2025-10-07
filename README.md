@@ -1,25 +1,42 @@
-# Uniti Deployment Helper
+# Lambda Deployment Web UI
 
-This Flask web app exposes a `/deploy` route that lets you trigger a service update from your browser. Confirming the prompt runs the bundled `deploy_pipeline.sh` script, which handles Docker Compose shutdown/start and `git pull` inside `/root/uniti-model-service`, streaming command output plus Git metadata back to the page.
+This project provides a minimal Flask application that runs `git pull` on a target repository and then deploys the bundle to an AWS Lambda function via the AWS CLI. Trigger the workflow from a single button in the web UI.
 
-## Setup
-- Install dependencies: `pip install -r requirements.txt`
-- Run the server locally: `python app.py`
-- Or build and run the container: `docker build -t uniti-deployer .` then `docker run --rm -p 5000:5000 -v /root/uniti-model-service:/root/uniti-model-service -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker:ro -v /usr/lib/docker/cli-plugins:/usr/lib/docker/cli-plugins:ro uniti-deployer`
-- Or launch with Docker Compose: `docker compose up --build`
+## Requirements
 
-If you run the helper in Docker, make sure the container can reach the Docker CLI **and** the Compose plugin. The example above bind-mounts `/usr/bin/docker` plus `/usr/lib/docker/cli-plugins`, which is where Ubuntu installs the v2 plugin—adjust the paths if your host uses different locations.
+- Python 3.9+
+- AWS CLI configured with credentials that can update the target Lambda function
+- Network access from the host running this app to AWS
 
-Expose the host’s port 5000 publicly only if your firewall/network rules allow it.
-Ensure `deploy_pipeline.sh` is executable (`chmod +x deploy_pipeline.sh`), and that `git` plus either `docker` (with the compose plugin) or `docker-compose` are installed and on the PATH for whichever user runs the app.
+Install dependencies:
 
-## File Overview
-- `app.py` – Flask app with the landing page and `/deploy` route plus command execution logic.
-- `deploy_pipeline.sh` – Bash script invoked by the app to stop containers, pull updates, and restart the service.
-- `templates/index.html` – Home page with a button that links to the deployment form.
-- `templates/deploy_form.html` – Confirmation form shown before deployment.
-- `templates/deploy_result.html` – Displays command logs and Git summary after execution.
-- `requirements.txt` – Python dependencies (Flask).
-- `Dockerfile` – Container definition running the app on port 5000 (installs git for repo metadata).
-- `docker-compose.yml` – Compose service exposing port 5000, mounting the model service repo, Docker socket, and Docker CLI/compose plugin from the host.
-- `.dockerignore` – Files excluded from Docker build context.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+## Configuration
+
+Set the following environment variables before starting the server (consider placing them in a `.env` file):
+
+- `LAMBDA_FUNCTION_NAME` **(required)** – name of the Lambda function to update.
+- `REPO_PATH` – path to the Git repository to pull from. Defaults to `/root/tobi`.
+- `LAMBDA_PACKAGE_PATH` – absolute path for the generated deployment zip. Defaults to `<REPO_PATH>/lambda_bundle.zip`.
+- `GIT_REMOTE` – remote to pull from. Defaults to `origin`.
+- `GIT_BRANCH` – branch to pull. Defaults to `main`.
+- `PORT` – port that Flask should listen on. Defaults to `6000`.
+
+The application assumes the AWS CLI is installed and on the `PATH`.
+
+## Run
+
+```bash
+export LAMBDA_FUNCTION_NAME=my-lambda
+export REPO_PATH=/root/tobi
+flask --app app run --host 0.0.0.0 --port 6000
+```
+
+Then open `http://localhost:6000` and click **Deploy**. A modal log will show the output of each step (git pull, packaging, and AWS CLI update).
+
+> **Note:** `aws lambda update-function-code` replaces the entire code package for the Lambda function. AWS automatically extracts the uploaded zip to refresh `/var/task`, so there is no need to manually delete old files or run an additional unzip step.
