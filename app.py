@@ -4,7 +4,10 @@ import subprocess
 import tempfile
 from typing import Dict, List, Optional
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -49,18 +52,27 @@ def deploy():
     lambda_function_name = os.environ.get("LAMBDA_FUNCTION_NAME")
     output_zip = os.environ.get("LAMBDA_PACKAGE_PATH", os.path.join(repo_path, "lambda_bundle.zip"))
 
+    steps: List[Dict[str, str]] = []
+
     if not lambda_function_name:
+        steps.append(
+            {
+                "command": "validate environment",
+                "stdout": "",
+                "stderr": "Environment variable LAMBDA_FUNCTION_NAME must be set.",
+                "returncode": 1,
+            }
+        )
         return (
             jsonify(
                 {
                     "success": False,
                     "error": "Environment variable LAMBDA_FUNCTION_NAME must be set.",
+                    "steps": steps,
                 }
             ),
             400,
         )
-
-    steps: List[Dict[str, str]] = []
 
     # Step 1: git pull
     git_remote = os.environ.get("GIT_REMOTE", "origin")
@@ -112,4 +124,4 @@ def deploy():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "6000")), debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=True)

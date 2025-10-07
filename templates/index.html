@@ -66,25 +66,37 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
           });
-          const data = await response.json();
+          const rawBody = await response.text();
+          let data;
 
-          const formattedSteps = data.steps
-            .map((step) => {
-              const lines = [`$ ${step.command}`];
-              if (step.stdout) {
-                lines.push(step.stdout);
-              }
-              if (step.stderr) {
-                lines.push(`stderr: ${step.stderr}`);
-              }
-              lines.push(`exit code: ${step.returncode}`);
-              return lines.join("\n");
-            })
-            .join("\n\n");
+          try {
+            data = rawBody ? JSON.parse(rawBody) : {};
+          } catch (parseError) {
+            throw new Error(`Unable to parse response: ${rawBody}`);
+          }
 
-          output.textContent = formattedSteps;
+          const steps = Array.isArray(data.steps) ? data.steps : [];
+          const renderedLines = steps.map((step) => {
+            const lines = [`$ ${step.command}`];
+            if (step.stdout) {
+              lines.push(step.stdout);
+            }
+            if (step.stderr) {
+              lines.push(`stderr: ${step.stderr}`);
+            }
+            lines.push(`exit code: ${step.returncode}`);
+            return lines.join("\n");
+          });
 
-          if (!data.success) {
+          if (!renderedLines.length && data.error) {
+            renderedLines.push(`Error: ${data.error}`);
+          }
+
+          output.textContent = renderedLines.join("\n\n") || "No output returned.";
+
+          if ((!response.ok || data.success === false) && data.error) {
+            alert(data.error);
+          } else if (!response.ok || data.success === false) {
             alert("Deployment failed. Check output for details.");
           }
         } catch (error) {
