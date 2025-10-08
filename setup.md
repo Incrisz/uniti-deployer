@@ -13,8 +13,6 @@ git config core.sshCommand "ssh -i ~/.ssh/id_signals -o IdentitiesOnly=yes"
 ## You can verify with:
 git config --get core.sshCommand
 
-## key and dont push
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHqPdoRePR3xdRP0ayUdJxEQ5g7tvJkzo4oedWm6kiDH signals-repo
 
 ## to test
 ssh -T git@bitbucket.org
