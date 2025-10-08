@@ -1,44 +1,321 @@
+import base64
+import json
 import os
-import shutil
 import subprocess
 import tempfile
-from typing import Dict, List, Optional
+import threading
+from datetime import datetime
+from typing import Any, Dict, Optional
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
+from apscheduler.jobstores.base import JobLookupError
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 load_dotenv()
 
 app = Flask(__name__)
 
+SCHEDULER_JOB_ID = "web_cron_job"
+DEFAULT_SCHEDULE = {
+    "minute": "0",
+    "hour": "*",
+    "day_of_month": "*",
+    "month": "*",
+    "day_of_week": "*",
+}
 
-def _run_command(command: List[str], cwd: Optional[str] = None) -> Dict[str, str]:
-    """Execute a shell command and capture stdout/stderr."""
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
+scheduler = BackgroundScheduler()
+_scheduler_lock = threading.Lock()
+_scheduler_started = False
+
+job_state: Dict[str, Any] = {
+    "is_running": False,
+    "current_trigger": None,
+    "last_run_at": None,
+    "last_success": None,
+    "last_message": "",
+    "job_enabled": False,
+    "schedule": DEFAULT_SCHEDULE.copy(),
+    "run_count": 0,
+    "last_details": {},
+}
+_state_lock = threading.Lock()
+
+
+def _ensure_scheduler_started() -> None:
+    """Start the APScheduler instance once."""
+    global _scheduler_started  # pylint: disable=global-statement
+    with _scheduler_lock:
+        if _scheduler_started:
+            return
+        scheduler.add_listener(_job_event_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+        scheduler.start()
+        _scheduler_started = True
+
+
+def _job_event_listener(event: JobExecutionEvent) -> None:
+    """Fallback listener to reset state if an unhandled scheduler failure occurs."""
+    if event.job_id != SCHEDULER_JOB_ID or not event.exception:
+        return
+
+    now = datetime.utcnow().isoformat() + "Z"
+    with _state_lock:
+        job_state["is_running"] = False
+        job_state["last_run_at"] = now
+        job_state["last_success"] = False
+        job_state["last_message"] = f"Unhandled scheduler error: {event.exception}"
+        job_state["current_trigger"] = "scheduler"
+
+
+def _mark_job_start(trigger: str) -> bool:
+    """Set state to running if no job is currently active."""
+    with _state_lock:
+        if job_state["is_running"]:
+            return False
+        job_state["is_running"] = True
+        job_state["current_trigger"] = trigger
+    return True
+
+
+def _finalize_job_run(success: bool, message: str, trigger: str, details: Optional[Dict[str, Any]]) -> None:
+    """Persist the outcome of a job run."""
+    now = datetime.utcnow().isoformat() + "Z"
+    ending_message = message or ("Job completed successfully." if success else "Job finished.")
+
+    with _state_lock:
+        job_state["is_running"] = False
+        job_state["last_run_at"] = now
+        job_state["last_success"] = success
+        job_state["last_message"] = ending_message
+        job_state["current_trigger"] = trigger
+        job_state["run_count"] += 1
+        job_state["last_details"] = dict(details) if details else {}
+
+
+def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Merge request payload with defaults, ensuring cron fields are strings."""
+    payload = payload or {}
+    schedule = DEFAULT_SCHEDULE.copy()
+    for key in schedule:
+        value = payload.get(key, schedule[key])
+        text = str(value).strip() if value is not None else schedule[key]
+        schedule[key] = text or schedule[key]
+    return schedule
+
+
+def _schedule_job(schedule_fields: Dict[str, str]) -> Optional[str]:
+    """Create or update the scheduled job."""
+    try:
+        trigger = CronTrigger(
+            month=schedule_fields["month"],
+            day=schedule_fields["day_of_month"],
+            day_of_week=schedule_fields["day_of_week"],
+            hour=schedule_fields["hour"],
+            minute=schedule_fields["minute"],
+            second="0",
+        )
+    except ValueError as exc:
+        raise ValueError(f"Invalid cron configuration: {exc}") from exc
+
+    _ensure_scheduler_started()
+    scheduler.add_job(_scheduled_job_run, trigger=trigger, id=SCHEDULER_JOB_ID, replace_existing=True)
+    job = scheduler.get_job(SCHEDULER_JOB_ID)
+
+    with _state_lock:
+        job_state["job_enabled"] = True
+        job_state["schedule"] = schedule_fields.copy()
+
+    return job.next_run_time.isoformat() + "Z" if job and job.next_run_time else None
+
+
+def _stop_scheduled_job() -> None:
+    """Remove the scheduled job if it exists."""
+    if not _scheduler_started:
+        with _state_lock:
+            job_state["job_enabled"] = False
+        return
+
+    try:
+        scheduler.remove_job(SCHEDULER_JOB_ID)
+    except JobLookupError:
+        pass
+
+    with _state_lock:
+        job_state["job_enabled"] = False
+
+
+def _get_scheduler_status() -> Dict[str, Any]:
+    """Return a snapshot of scheduler and job state."""
+    job = scheduler.get_job(SCHEDULER_JOB_ID) if _scheduler_started else None
+    next_run_time = job.next_run_time.isoformat() + "Z" if job and job.next_run_time else None
+
+    with _state_lock:
+        snapshot = {
+            "is_running": job_state["is_running"],
+            "current_trigger": job_state["current_trigger"],
+            "last_run_at": job_state["last_run_at"],
+            "last_success": job_state["last_success"],
+            "last_message": job_state["last_message"],
+            "job_enabled": job_state["job_enabled"],
+            "schedule": job_state["schedule"].copy(),
+            "run_count": job_state["run_count"],
+            "last_details": job_state["last_details"].copy(),
+        }
+
+    snapshot["next_run_time"] = next_run_time
+    snapshot["scheduler_running"] = _scheduler_started and scheduler.running
+    return snapshot
+
+
+def _execute_job_task() -> Dict[str, Any]:
+    """Execute the cron job task by invoking an AWS Lambda function."""
+    function_name = (os.environ.get("LAMBDA_FUNCTION_NAME") or "").strip()
+    payload = (os.environ.get("LAMBDA_PAYLOAD") or "{}").strip() or "{}"
+    aws_cli = (os.environ.get("AWS_CLI_PATH") or "aws").strip() or "aws"
+    log_type = (os.environ.get("LAMBDA_LOG_TYPE") or "Tail").strip()
+
+    if not function_name:
+        message = "Environment variable LAMBDA_FUNCTION_NAME must be set."
+        return {
+            "success": False,
+            "message": message,
+            "details": {"error": message},
+            "status_code": 400,
+        }
+
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        output_path = tmp_file.name
+
+    command = [
+        aws_cli,
+        "lambda",
+        "invoke",
+        "--function-name",
+        function_name,
+        "--cli-binary-format",
+        "raw-in-base64-out",
+        "--payload",
+        payload,
+    ]
+
+    if log_type:
+        command.extend(["--log-type", log_type])
+
+    command.append(output_path)
+
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    stdout = completed.stdout.strip()
+    stderr = completed.stderr.strip()
+
+    try:
+        with open(output_path, "r", encoding="utf-8") as response_file:
+            raw_response = response_file.read().strip()
+    except OSError:
+        raw_response = ""
+    finally:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+
+    metadata: Dict[str, Any] = {}
+    if stdout:
+        try:
+            metadata = json.loads(stdout)
+        except json.JSONDecodeError:
+            metadata = {"raw_stdout": stdout}
+
+    log_output = None
+    if isinstance(metadata, dict) and metadata.get("LogResult"):
+        try:
+            log_output = base64.b64decode(metadata["LogResult"]).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            log_output = metadata["LogResult"]
+
+    success = completed.returncode == 0
+    message = (
+        f"Invocation succeeded for {function_name}."
+        if success
+        else f"Invocation failed for {function_name}."
     )
-    return {
-        "command": " ".join(command),
-        "stdout": completed.stdout.strip(),
-        "stderr": completed.stderr.strip(),
+
+    details: Dict[str, Any] = {
+        "function_name": function_name,
+        "stdout": stdout,
+        "stderr": stderr,
         "returncode": completed.returncode,
+        "function_response": raw_response or "(no payload returned)",
+    }
+
+    if log_output:
+        details["log_result"] = log_output
+    if metadata and "raw_stdout" not in metadata:
+        details["metadata"] = metadata
+
+    status_code = 200 if success else 500
+
+    return {
+        "success": success,
+        "message": message,
+        "details": details,
+        "status_code": status_code,
     }
 
 
-def _zip_directory(source_dir: str, output_path: str) -> None:
-    """Create a zip archive from source_dir, excluding the .git directory."""
-    if os.path.exists(output_path):
-        os.remove(output_path)
+def _run_job(trigger: str) -> Dict[str, Any]:
+    """Run the cron job and capture its outcome."""
+    if not _mark_job_start(trigger):
+        return {
+            "success": False,
+            "message": "Job is already running.",
+            "status_code": 409,
+            "details": {"error": "Job is already running."},
+        }
 
-    with tempfile.TemporaryDirectory() as staging_dir:
-        staging_path = os.path.join(staging_dir, "payload")
-        shutil.copytree(source_dir, staging_path, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
-        base_name = output_path[:-4] if output_path.endswith(".zip") else output_path
-        shutil.make_archive(base_name, "zip", root_dir=staging_path)
+    success = False
+    message = ""
+    status_code = 500
+    details: Dict[str, Any] = {}
+
+    try:
+        result = _execute_job_task()
+        success = bool(result.get("success"))
+        message = result.get("message") or ("Job completed successfully." if success else "Job finished with issues.")
+        details = result.get("details") or {}
+        status_code = result.get("status_code", 200 if success else 500)
+        return {
+            "success": success,
+            "message": message,
+            "details": details,
+            "status_code": status_code,
+        }
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        message = f"Job failed with unexpected error: {exc}"
+        details = {"error": str(exc)}
+        return {
+            "success": False,
+            "message": message,
+            "details": details,
+            "status_code": 500,
+        }
+    finally:
+        _finalize_job_run(success, message, trigger, details)
+
+
+def _scheduled_job_run() -> None:
+    """Background job entrypoint for APScheduler."""
+    result = _run_job("scheduler")
+    if result.get("status_code") == 409:
+        app.logger.info("Scheduled run skipped: %s", result.get("message"))
+        return
+
+    status = "success" if result.get("success") else "failure"
+    app.logger.info("Scheduled run finished with %s", status)
+    if not result.get("success"):
+        app.logger.error("Scheduled run failed: %s", result.get("message"))
 
 
 @app.route("/", methods=["GET"])
@@ -46,84 +323,56 @@ def index() -> str:
     return render_template("index.html")
 
 
-@app.route("/deploy", methods=["POST"])
-def deploy():
-    repo_path = os.environ.get("REPO_PATH", "/root/tobi")
-    lambda_function_name = os.environ.get("LAMBDA_FUNCTION_NAME")
-    output_zip = os.environ.get("LAMBDA_PACKAGE_PATH", os.path.join(repo_path, "lambda_bundle.zip"))
+@app.route("/job/run", methods=["POST"])
+def run_job():
+    result = _run_job("manual")
+    status_code = result.pop("status_code", 200)
+    return jsonify(result), status_code
 
-    steps: List[Dict[str, str]] = []
 
-    if not lambda_function_name:
-        steps.append(
-            {
-                "command": "validate environment",
-                "stdout": "",
-                "stderr": "Environment variable LAMBDA_FUNCTION_NAME must be set.",
-                "returncode": 1,
-            }
-        )
-        return (
-            jsonify(
-                {
-                    "success": False,
-                    "error": "Environment variable LAMBDA_FUNCTION_NAME must be set.",
-                    "steps": steps,
-                }
-            ),
-            400,
-        )
+@app.route("/job/status", methods=["GET"])
+def job_status():
+    return jsonify(_get_scheduler_status())
 
-    # Step 1: git pull
-    git_remote = os.environ.get("GIT_REMOTE", "origin")
-    git_branch = os.environ.get("GIT_BRANCH", "main")
 
-    steps.append(_run_command(["git", "pull", git_remote, git_branch], cwd=repo_path))
-
-    if steps[-1]["returncode"] != 0:
-        return jsonify({"success": False, "steps": steps}), 500
-
-    # Step 2: package repository
-    error: Optional[Dict[str, str]] = None
+@app.route("/job/schedule", methods=["POST"])
+def update_schedule():
+    payload = request.get_json(silent=True) or {}
+    schedule_fields = _normalize_schedule_payload(payload)
     try:
-        _zip_directory(repo_path, output_zip)
-        steps.append(
-            {
-                "command": f"zip -> {output_zip}",
-                "stdout": "Created deployment package.",
-                "stderr": "",
-                "returncode": 0,
-            }
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        error = {
-            "command": "zip",
-            "stdout": "",
-            "stderr": str(exc),
-            "returncode": 1,
-        }
-        steps.append(error)
+        next_run_time = _schedule_job(schedule_fields)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
 
-    if error:
-        return jsonify({"success": False, "steps": steps}), 500
+    response = _get_scheduler_status()
+    response["next_run_time"] = next_run_time
+    response["success"] = True
+    return jsonify(response)
 
-    # Step 3: aws lambda update-function-code
-    aws_command = [
-        "aws",
-        "lambda",
-        "update-function-code",
-        "--function-name",
-        lambda_function_name,
-        "--zip-file",
-        f"fileb://{output_zip}",
-    ]
-    steps.append(_run_command(aws_command))
 
-    success = steps[-1]["returncode"] == 0
-    status_code = 200 if success else 500
-    message = "Deployment completed successfully." if success else "Deployment failed. Check the logs above."
-    return jsonify({"success": success, "message": message, "steps": steps}), status_code
+@app.route("/job/start", methods=["POST"])
+def start_scheduler():
+    with _state_lock:
+        schedule_fields = job_state["schedule"].copy()
+
+    try:
+        next_run_time = _schedule_job(schedule_fields)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    response = _get_scheduler_status()
+    response["next_run_time"] = next_run_time
+    response["success"] = True
+    return jsonify(response)
+
+
+@app.route("/job/stop", methods=["POST"])
+def stop_scheduler():
+    _stop_scheduled_job()
+    response = _get_scheduler_status()
+    response["success"] = True
+    return jsonify(response)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8081")), debug=True)

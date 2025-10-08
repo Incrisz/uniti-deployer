@@ -3,41 +3,187 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lambda Deployment</title>
+    <title>Web Cron Scheduler</title>
     <style>
+      :root {
+        color-scheme: light;
+      }
+
       body {
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-        margin: 2rem auto;
-        max-width: 600px;
-        line-height: 1.5;
+        background: #f8fafc;
+        color: #0f172a;
+        margin: 0;
+        padding: 0;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 2.5rem 1.5rem 3rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1.75rem;
+      }
+
+      h1 {
+        font-size: 1.9rem;
+        margin: 0 0 0.5rem;
+      }
+
+      p.lead {
+        margin: 0;
+        color: #475569;
+      }
+
+      section {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+      }
+
+      section h2 {
+        margin: 0 0 1.1rem;
+        font-size: 1.25rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 1rem;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        font-size: 0.9rem;
+        color: #334155;
+      }
+
+      input {
+        padding: 0.6rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid #cbd5f5;
+        font-size: 0.95rem;
+        background: #ffffff;
+      }
+
+      input:focus {
+        border-color: #2563eb;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
       }
 
       button {
         padding: 0.75rem 1.5rem;
         border: none;
-        border-radius: 4px;
+        border-radius: 8px;
         background: #2563eb;
-        color: white;
-        font-size: 1rem;
+        color: #ffffff;
+        font-size: 0.95rem;
+        font-weight: 600;
         cursor: pointer;
+        transition: background 0.15s ease-in-out;
+      }
+
+      button:hover:not(:disabled) {
+        background: #1d4ed8;
       }
 
       button:disabled {
-        opacity: 0.6;
-        cursor: wait;
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+
+      button.secondary {
+        background: #f1f5f9;
+        color: #1e293b;
+      }
+
+      button.secondary:hover:not(:disabled) {
+        background: #e2e8f0;
+      }
+
+      .button-row {
+        margin-top: 1.2rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.8rem;
+      }
+
+      .helper {
+        margin-top: 0.45rem;
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+
+      #status-board {
+        display: grid;
+        gap: 0.55rem;
+        font-size: 0.95rem;
+      }
+
+      .status-line {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 0.18rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: #e2e8f0;
+        color: #1e293b;
+      }
+
+      .badge[data-state="active"] {
+        background: #bbf7d0;
+        color: #166534;
+      }
+
+      .badge[data-state="inactive"] {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+
+      .badge[data-state="idle"] {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+
+      .badge[data-state="success"] {
+        background: #bbf7d0;
+        color: #166534;
+      }
+
+      .badge[data-state="failed"] {
+        background: #fecaca;
+        color: #b91c1c;
       }
 
       pre {
-        background: #111827;
-        color: #f3f4f6;
+        background: #0f172a;
+        color: #e2e8f0;
         padding: 1rem;
-        border-radius: 4px;
+        border-radius: 10px;
         overflow-x: auto;
         white-space: pre-wrap;
+        line-height: 1.5;
+        border: 1px solid #1e293b;
+        min-height: 120px;
       }
 
       pre[data-status="running"] {
-        border-left: 4px solid #facc15;
+        border-left: 4px solid #f59e0b;
       }
 
       pre[data-status="success"] {
@@ -48,85 +194,412 @@
         border-left: 4px solid #dc2626;
       }
 
+      #flash {
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin-top: 0.75rem;
+        font-size: 0.9rem;
+      }
+
+      #flash[data-state="info"] {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+
+      #flash[data-state="success"] {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      #flash[data-state="error"] {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+
       .hidden {
         display: none;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 1.75rem 1rem 2.5rem;
+        }
+
+        .button-row {
+          flex-direction: column;
+        }
+
+        button {
+          width: 100%;
+        }
       }
     </style>
   </head>
   <body>
-    <h1>Deploy Lambda</h1>
-    <p>Trigger a deployment by pulling the latest code and updating AWS Lambda.</p>
-    <button id="deploy-btn">Deploy</button>
+    <main>
+      <header>
+        <h1>Web Cron Scheduler</h1>
+        <p class="lead">
+          Configure a cron-like schedule, start or stop it on demand, and trigger the job manually from the browser.
+        </p>
+      </header>
 
-    <div id="result" class="hidden">
-      <h2>Deployment Result</h2>
-      <pre id="output"></pre>
-    </div>
+      <section>
+        <h2>Cron Schedule</h2>
+        <form id="schedule-form" autocomplete="off">
+          <div class="grid">
+            <label>
+              <span>Minute</span>
+              <input type="text" name="minute" placeholder="0" />
+            </label>
+            <label>
+              <span>Hour</span>
+              <input type="text" name="hour" placeholder="*" />
+            </label>
+            <label>
+              <span>Day of Month</span>
+              <input type="text" name="day_of_month" placeholder="*" />
+            </label>
+            <label>
+              <span>Month</span>
+              <input type="text" name="month" placeholder="*" />
+            </label>
+            <label>
+              <span>Day of Week</span>
+              <input type="text" name="day_of_week" placeholder="*" />
+            </label>
+          </div>
+          <p class="helper">
+            Use standard cron syntax. Leaving a field empty defaults to <code>*</code>. Saving the schedule will enable the
+            background job.
+          </p>
+          <div class="button-row">
+            <button type="submit" id="save-schedule">Save &amp; Start</button>
+            <button type="button" class="secondary" id="start-scheduler">Start</button>
+            <button type="button" class="secondary" id="stop-scheduler">Stop</button>
+          </div>
+        </form>
+        <div id="flash" class="hidden" data-state="info"></div>
+      </section>
+
+      <section>
+        <h2>Manual Run</h2>
+        <p class="helper">Trigger the cron job right now without waiting for the next schedule.</p>
+        <button id="run-now">Run Job Now</button>
+      </section>
+
+      <section>
+        <h2>Status</h2>
+        <div id="status-board">
+          <div class="status-line">
+            <strong>Scheduler:</strong>
+            <span class="badge" id="scheduler-state" data-state="inactive">Stopped</span>
+          </div>
+          <div class="status-line">
+            <strong>Job:</strong>
+            <span class="badge" id="running-state" data-state="idle">Idle</span>
+            <span id="current-trigger" class="helper"></span>
+          </div>
+          <div class="status-line">
+            <strong>Next run:</strong>
+            <span id="next-run">—</span>
+          </div>
+          <div class="status-line">
+            <strong>Last run:</strong>
+            <span id="last-run">Never</span>
+          </div>
+          <div class="status-line">
+            <strong>Result:</strong>
+            <span class="badge" id="last-result-state" data-state="idle">Pending</span>
+            <span id="last-result" class="helper"></span>
+          </div>
+          <div class="status-line">
+            <strong>Runs completed:</strong>
+            <span id="run-count">0</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Latest Message</h2>
+        <pre id="output" data-status="idle">No runs yet.</pre>
+      </section>
+    </main>
 
     <script>
-      const button = document.getElementById("deploy-btn");
-      const resultContainer = document.getElementById("result");
+      const scheduleForm = document.getElementById("schedule-form");
+      const flash = document.getElementById("flash");
+      const runBtn = document.getElementById("run-now");
+      const saveScheduleBtn = document.getElementById("save-schedule");
+      const startBtn = document.getElementById("start-scheduler");
+      const stopBtn = document.getElementById("stop-scheduler");
+      const schedulerBadge = document.getElementById("scheduler-state");
+      const runningBadge = document.getElementById("running-state");
+      const triggerLabel = document.getElementById("current-trigger");
+      const nextRunLabel = document.getElementById("next-run");
+      const lastRunLabel = document.getElementById("last-run");
+      const lastResultBadge = document.getElementById("last-result-state");
+      const lastResultText = document.getElementById("last-result");
+      const runCountLabel = document.getElementById("run-count");
       const output = document.getElementById("output");
 
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        output.textContent = "Deploying...";
-        resultContainer.classList.remove("hidden");
-        output.dataset.status = "running";
+      let flashTimeoutId = null;
+      let scheduleInitialized = false;
 
+      const cronFields = ["minute", "hour", "day_of_month", "month", "day_of_week"];
+
+      function setFlash(message, state = "info") {
+        if (!message) {
+          flash.classList.add("hidden");
+          return;
+        }
+        flash.textContent = message;
+        flash.dataset.state = state;
+        flash.classList.remove("hidden");
+        if (flashTimeoutId) {
+          clearTimeout(flashTimeoutId);
+        }
+        flashTimeoutId = setTimeout(() => {
+          flash.classList.add("hidden");
+        }, 5000);
+      }
+
+      function formatTimestamp(value) {
+        if (!value) {
+          return "—";
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return value;
+        }
+        return parsed.toLocaleString();
+      }
+
+      function formatDetails(message, details) {
+        const lines = [];
+        if (message) {
+          lines.push(message);
+        }
+
+        const info = details && typeof details === "object" ? details : {};
+
+        if (info.function_response) {
+          lines.push(`Response:\n${info.function_response}`);
+        }
+
+        if (info.log_result) {
+          lines.push(`Logs:\n${info.log_result.trim()}`);
+        }
+
+        if (info.stdout && !info.metadata) {
+          lines.push(`AWS CLI stdout:\n${info.stdout}`);
+        }
+
+        if (info.stderr) {
+          lines.push(`AWS CLI stderr:\n${info.stderr}`);
+        }
+
+        if (Number.isFinite(info.returncode)) {
+          lines.push(`Return code: ${info.returncode}`);
+        }
+
+        if (info.metadata) {
+          lines.push(`Metadata:\n${JSON.stringify(info.metadata, null, 2)}`);
+        }
+
+        if (info.error) {
+          lines.push(`Error:\n${info.error}`);
+        }
+
+        if (!lines.length) {
+          return "No runs yet.";
+        }
+
+        return lines.join("\n\n");
+      }
+
+      function setButtonLoading(button, isLoading, label, loadingLabel, unlockOnFinish = true) {
+        if (isLoading) {
+          button.disabled = true;
+          button.dataset.originalLabel = label || button.textContent;
+          button.textContent = loadingLabel || "Working…";
+        } else {
+          const original = button.dataset.originalLabel || label || button.textContent;
+          delete button.dataset.originalLabel;
+          if (unlockOnFinish) {
+            button.disabled = false;
+          }
+          button.textContent = original;
+        }
+      }
+
+      function renderStatus(data) {
+        if (!data || typeof data !== "object") {
+          return;
+        }
+
+        schedulerBadge.textContent = data.job_enabled ? "Active" : "Stopped";
+        schedulerBadge.dataset.state = data.job_enabled ? "active" : "inactive";
+
+        runningBadge.textContent = data.is_running ? "Running" : "Idle";
+        runningBadge.dataset.state = data.is_running ? "active" : "idle";
+
+        triggerLabel.textContent = data.current_trigger ? `(via ${data.current_trigger})` : "";
+
+        nextRunLabel.textContent = formatTimestamp(data.next_run_time);
+        lastRunLabel.textContent = data.last_run_at ? formatTimestamp(data.last_run_at) : "Never";
+        lastResultText.textContent = data.last_message || "";
+        runCountLabel.textContent = data.run_count ?? 0;
+
+        if (data.last_success === true) {
+          lastResultBadge.textContent = "Success";
+          lastResultBadge.dataset.state = "success";
+          output.dataset.status = "success";
+        } else if (data.last_success === false) {
+          lastResultBadge.textContent = "Failed";
+          lastResultBadge.dataset.state = "failed";
+          output.dataset.status = "failed";
+        } else {
+          lastResultBadge.textContent = "Pending";
+          lastResultBadge.dataset.state = "idle";
+          output.dataset.status = "idle";
+        }
+
+        output.textContent = formatDetails(data.last_message, data.last_details);
+
+        if (!scheduleInitialized && data.schedule) {
+          cronFields.forEach((field) => {
+            if (field in data.schedule) {
+              const input = scheduleForm.elements.namedItem(field);
+              if (input) {
+                input.value = data.schedule[field];
+              }
+            }
+          });
+          scheduleInitialized = true;
+        }
+
+        const jobRunning = Boolean(data.is_running);
+        runBtn.textContent = jobRunning ? "Job Running…" : "Run Job Now";
+        runBtn.disabled = jobRunning;
+
+        startBtn.disabled = data.job_enabled;
+        stopBtn.disabled = !data.job_enabled;
+      }
+
+      async function refreshStatus() {
         try {
-          const response = await fetch("/deploy", {
+          const response = await fetch("/job/status");
+          if (!response.ok) {
+            throw new Error(`Status check failed (${response.status})`);
+          }
+          const data = await response.json();
+          renderStatus(data);
+        } catch (error) {
+          setFlash(error.message, "error");
+        }
+      }
+
+      function collectScheduleValues() {
+        return cronFields.reduce((acc, field) => {
+          const input = scheduleForm.elements.namedItem(field);
+          const value = input && input.value ? input.value.trim() : "";
+          acc[field] = value || "*";
+          return acc;
+        }, {});
+      }
+
+      scheduleForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setButtonLoading(saveScheduleBtn, true, "Save & Start", "Saving…");
+        setFlash("");
+        try {
+          const payload = collectScheduleValues();
+          const response = await fetch("/job/schedule", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
           });
-          const rawBody = await response.text();
-          let data;
-
-          try {
-            data = rawBody ? JSON.parse(rawBody) : {};
-          } catch (parseError) {
-            throw new Error(`Unable to parse response: ${rawBody}`);
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to update schedule.");
           }
-
-          const steps = Array.isArray(data.steps) ? data.steps : [];
-          const renderedLines = steps.map((step) => {
-            const lines = [`$ ${step.command}`];
-            if (step.stdout) {
-              lines.push(step.stdout);
-            }
-            if (step.stderr) {
-              lines.push(`stderr: ${step.stderr}`);
-            }
-            lines.push(`exit code: ${step.returncode}`);
-            return lines.join("\n");
-          });
-
-          if (!renderedLines.length && data.error) {
-            renderedLines.push(`Error: ${data.error}`);
-          }
-
-          output.textContent = renderedLines.join("\n\n") || "No output returned.";
-
-          const success = Boolean(data.success);
-          const message =
-            data.message ||
-            (success ? "Deployment completed successfully." : "Deployment failed. Check output for details.");
-
-          output.dataset.status = success ? "success" : "failed";
-          output.textContent += `\n\n${message}`;
-
-          if ((!response.ok || !success) && data.error) {
-            alert(data.error);
-          } else if (!response.ok || !success) {
-            alert(message);
-          }
+          renderStatus(data);
+          setFlash("Schedule saved and scheduler started.", "success");
         } catch (error) {
-          output.textContent = `Unexpected error: ${error}`;
-          output.dataset.status = "failed";
+          setFlash(error.message, "error");
         } finally {
-          button.disabled = false;
+          setButtonLoading(saveScheduleBtn, false, "Save & Start");
         }
       });
+
+      startBtn.addEventListener("click", async () => {
+        setButtonLoading(startBtn, true, "Start", "Starting…");
+        setFlash("");
+        try {
+          const response = await fetch("/job/start", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to start scheduler.");
+          }
+          renderStatus(data);
+          setFlash("Scheduler started.", "success");
+        } catch (error) {
+          setFlash(error.message, "error");
+        } finally {
+          setButtonLoading(startBtn, false, "Start");
+          refreshStatus();
+        }
+      });
+
+      stopBtn.addEventListener("click", async () => {
+        setButtonLoading(stopBtn, true, "Stop", "Stopping…");
+        setFlash("");
+        try {
+          const response = await fetch("/job/stop", { method: "POST" });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to stop scheduler.");
+          }
+          renderStatus(data);
+          setFlash("Scheduler stopped.", "info");
+        } catch (error) {
+          setFlash(error.message, "error");
+        } finally {
+          setButtonLoading(stopBtn, false, "Stop");
+          refreshStatus();
+        }
+      });
+
+      runBtn.addEventListener("click", async () => {
+        setButtonLoading(runBtn, true, "Run Job Now", "Running…", false);
+        output.dataset.status = "running";
+        output.textContent = "Job started…";
+        setFlash("");
+        try {
+          const response = await fetch("/job/run", { method: "POST" });
+          const data = await response.json();
+          output.textContent = formatDetails(data.message, data.details);
+          if (data.success) {
+            output.dataset.status = "success";
+            setFlash(data.message || "Job completed successfully.", "success");
+          } else {
+            output.dataset.status = "failed";
+            const errorMessage = data.message || data.error || "Job failed.";
+            setFlash(errorMessage, "error");
+          }
+        } catch (error) {
+          output.dataset.status = "failed";
+          output.textContent = `Unexpected error: ${error}`;
+          setFlash("Job failed due to an unexpected error.", "error");
+        } finally {
+          setButtonLoading(runBtn, false, "Run Job Now", undefined, false);
+          await refreshStatus();
+        }
+      });
+
+      refreshStatus();
+      setInterval(refreshStatus, 5000);
     </script>
   </body>
 </html>
