@@ -1,0 +1,20 @@
+
+
+## run in the background
+nohup gunicorn -w 2 -b 0.0.0.0:8080 app:app >/var/log/uniti-deployer.log 2>&1 &
+
+## generate key
+ssh-keygen -t ed25519 -C "signals-repo" -f ~/.ssh/id_signals
+
+## set key 
+cd /path/to/signals
+git config core.sshCommand "ssh -i ~/.ssh/id_signals -o IdentitiesOnly=yes"
+
+## You can verify with:
+git config --get core.sshCommand
+
+## key and dont push
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHqPdoRePR3xdRP0ayUdJxEQ5g7tvJkzo4oedWm6kiDH signals-repo
+
+## to test
+ssh -T git@bitbucket.org
