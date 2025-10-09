@@ -140,13 +140,15 @@ def _schedule_job(
         raise ValueError(f"Invalid cron configuration: {exc}") from exc
 
     _ensure_scheduler_started()
-    scheduler.add_job(
-        _scheduled_job_run,
-        trigger=trigger,
-        id=SCHEDULER_JOB_ID,
-        replace_existing=True,
-        next_run_time=target_next_run,
-    )
+    job_kwargs: Dict[str, Any] = {
+        "trigger": trigger,
+        "id": SCHEDULER_JOB_ID,
+        "replace_existing": True,
+    }
+    if target_next_run is not None:
+        job_kwargs["next_run_time"] = target_next_run
+
+    scheduler.add_job(_scheduled_job_run, **job_kwargs)
     job = scheduler.get_job(SCHEDULER_JOB_ID)
 
     with _state_lock:
