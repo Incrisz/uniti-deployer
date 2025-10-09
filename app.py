@@ -41,6 +41,8 @@ job_state: Dict[str, Any] = {
     "schedule": DEFAULT_SCHEDULE.copy(),
     "run_count": 0,
     "last_details": {},
+    "scheduler_mode": None,
+    "daily_time": None,
 }
 _state_lock = threading.Lock()
 
@@ -106,7 +108,7 @@ def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, 
     return schedule
 
 
-def _schedule_job(schedule_fields: Dict[str, str]) -> Optional[str]:
+def _schedule_job(schedule_fields: Dict[str, str], mode: str = "cron", daily_time_value: Optional[str] = None) -> Optional[str]:
     """Create or update the scheduled job."""
     try:
         trigger = CronTrigger(
@@ -127,6 +129,8 @@ def _schedule_job(schedule_fields: Dict[str, str]) -> Optional[str]:
     with _state_lock:
         job_state["job_enabled"] = True
         job_state["schedule"] = schedule_fields.copy()
+        job_state["scheduler_mode"] = mode
+        job_state["daily_time"] = daily_time_value if mode == "daily" else None
 
     return job.next_run_time.isoformat() + "Z" if job and job.next_run_time else None
 
@@ -163,10 +167,13 @@ def _get_scheduler_status() -> Dict[str, Any]:
             "schedule": job_state["schedule"].copy(),
             "run_count": job_state["run_count"],
             "last_details": job_state["last_details"].copy(),
+            "scheduler_mode": job_state["scheduler_mode"],
+            "daily_time": job_state["daily_time"],
         }
 
     snapshot["next_run_time"] = next_run_time
     snapshot["scheduler_running"] = _scheduler_started and scheduler.running
+    snapshot["server_time"] = datetime.now().isoformat()
     return snapshot
 
 
@@ -340,7 +347,41 @@ def update_schedule():
     payload = request.get_json(silent=True) or {}
     schedule_fields = _normalize_schedule_payload(payload)
     try:
-        next_run_time = _schedule_job(schedule_fields)
+        next_run_time = _schedule_job(schedule_fields, mode="cron")
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    response = _get_scheduler_status()
+    response["next_run_time"] = next_run_time
+    response["success"] = True
+    return jsonify(response)
+
+
+@app.route("/job/daily", methods=["POST"])
+def update_daily_schedule():
+    payload = request.get_json(silent=True) or {}
+    raw_time = str(payload.get("time", "")).strip()
+
+    if not raw_time:
+        return jsonify({"success": False, "error": "Daily time value is required (HH:MM)."}), 400
+
+    try:
+        parsed_time = datetime.strptime(raw_time, "%H:%M").time()
+    except ValueError as exc:
+        return jsonify({"success": False, "error": f"Invalid time format: {raw_time}"}), 400
+
+    schedule_fields = DEFAULT_SCHEDULE.copy()
+    schedule_fields.update(
+        {
+            "minute": str(parsed_time.minute),
+            "hour": str(parsed_time.hour),
+        }
+    )
+
+    daily_value = parsed_time.strftime("%H:%M")
+
+    try:
+        next_run_time = _schedule_job(schedule_fields, mode="daily", daily_time_value=daily_value)
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
@@ -354,9 +395,11 @@ def update_schedule():
 def start_scheduler():
     with _state_lock:
         schedule_fields = job_state["schedule"].copy()
+        mode = job_state["scheduler_mode"] or "cron"
+        daily_time_value = job_state["daily_time"]
 
     try:
-        next_run_time = _schedule_job(schedule_fields)
+        next_run_time = _schedule_job(schedule_fields, mode=mode, daily_time_value=daily_time_value)
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 

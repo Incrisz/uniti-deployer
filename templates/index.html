@@ -283,6 +283,23 @@
       </section>
 
       <section>
+        <h2>Daily Time Scheduler</h2>
+        <form id="daily-form" autocomplete="off">
+          <label>
+            <span>Daily run time</span>
+            <input type="time" name="daily-time" id="daily-time" />
+          </label>
+          <p class="helper">
+            Select a daily server time (24-hour). Saving this schedule replaces any cron expression. The job will run once
+            per day at the selected time.
+          </p>
+          <div class="button-row">
+            <button type="submit" id="save-daily">Save &amp; Start Daily</button>
+          </div>
+        </form>
+      </section>
+
+      <section>
         <h2>Manual Run</h2>
         <p class="helper">Trigger the cron job right now without waiting for the next schedule.</p>
         <button id="run-now">Run Job Now</button>
@@ -291,6 +308,10 @@
       <section>
         <h2>Status</h2>
         <div id="status-board">
+          <div class="status-line">
+            <strong>Server time:</strong>
+            <span id="server-time">—</span>
+          </div>
           <div class="status-line">
             <strong>Scheduler:</strong>
             <span class="badge" id="scheduler-state" data-state="inactive">Stopped</span>
@@ -333,6 +354,9 @@
       const saveScheduleBtn = document.getElementById("save-schedule");
       const startBtn = document.getElementById("start-scheduler");
       const stopBtn = document.getElementById("stop-scheduler");
+      const dailyForm = document.getElementById("daily-form");
+      const dailyInput = document.getElementById("daily-time");
+      const saveDailyBtn = document.getElementById("save-daily");
       const schedulerBadge = document.getElementById("scheduler-state");
       const runningBadge = document.getElementById("running-state");
       const triggerLabel = document.getElementById("current-trigger");
@@ -341,10 +365,12 @@
       const lastResultBadge = document.getElementById("last-result-state");
       const lastResultText = document.getElementById("last-result");
       const runCountLabel = document.getElementById("run-count");
+      const serverTimeLabel = document.getElementById("server-time");
       const output = document.getElementById("output");
 
       let flashTimeoutId = null;
       let scheduleInitialized = false;
+      let dailyInitialized = false;
 
       const cronFields = ["minute", "hour", "day_of_month", "month", "day_of_week"];
 
@@ -365,6 +391,17 @@
       }
 
       function formatTimestamp(value) {
+        if (!value) {
+          return "—";
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return value;
+        }
+        return parsed.toLocaleString();
+      }
+
+      function formatServerClock(value) {
         if (!value) {
           return "—";
         }
@@ -433,10 +470,29 @@
         }
       }
 
+      function setCronConfigDisabled(disabled) {
+        cronFields.forEach((field) => {
+          const input = scheduleForm.elements.namedItem(field);
+          if (input) {
+            input.disabled = disabled;
+          }
+        });
+        saveScheduleBtn.disabled = disabled;
+      }
+
+      function setDailyConfigDisabled(disabled) {
+        if (dailyInput) {
+          dailyInput.disabled = disabled;
+        }
+        saveDailyBtn.disabled = disabled;
+      }
+
       function renderStatus(data) {
         if (!data || typeof data !== "object") {
           return;
         }
+
+        serverTimeLabel.textContent = formatServerClock(data.server_time);
 
         schedulerBadge.textContent = data.job_enabled ? "Active" : "Stopped";
         schedulerBadge.dataset.state = data.job_enabled ? "active" : "inactive";
@@ -479,12 +535,23 @@
           scheduleInitialized = true;
         }
 
+        if (!dailyInitialized && data.daily_time && dailyInput) {
+          dailyInput.value = data.daily_time;
+          dailyInitialized = true;
+        }
+
         const jobRunning = Boolean(data.is_running);
         runBtn.textContent = jobRunning ? "Job Running…" : "Run Job Now";
         runBtn.disabled = jobRunning;
 
         startBtn.disabled = data.job_enabled;
         stopBtn.disabled = !data.job_enabled;
+
+        const cronLocked = data.job_enabled && data.scheduler_mode === "daily";
+        const dailyLocked = data.job_enabled && data.scheduler_mode === "cron";
+
+        setCronConfigDisabled(cronLocked);
+        setDailyConfigDisabled(dailyLocked);
       }
 
       async function refreshStatus() {
@@ -568,6 +635,35 @@
         } finally {
           setButtonLoading(stopBtn, false, "Stop");
           refreshStatus();
+        }
+      });
+
+      dailyForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const value = dailyInput.value;
+        if (!value) {
+          setFlash("Please provide a daily time value.", "error");
+          return;
+        }
+        setButtonLoading(saveDailyBtn, true, "Save & Start Daily", "Saving…");
+        setFlash("");
+        try {
+          const response = await fetch("/job/daily", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ time: value }),
+          });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to save daily schedule.");
+          }
+          dailyInitialized = true;
+          renderStatus(data);
+          setFlash("Daily schedule saved and started.", "success");
+        } catch (error) {
+          setFlash(error.message, "error");
+        } finally {
+          setButtonLoading(saveDailyBtn, false, "Save & Start Daily");
         }
       });
 
