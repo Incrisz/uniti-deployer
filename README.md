@@ -36,7 +36,7 @@ python app.py
 Open `http://localhost:8081` to manage the scheduler:
 
 - **Save & Start** persists cron fields and immediately enables the background job.
-- **Save & Start Daily** sets a single daily run time (e.g., 21:00) and disables the cron editor while active.
+- **Save & Start Daily** sets a single daily run time in 24-hour format (e.g., `21:00` for 9 PM) and disables the cron editor while active.
 - **Start/Stop** toggles whichever schedule (cron or daily) was last saved.
 - **Run Job Now** executes the Lambda immediately, independent of the schedule.
 - The **Status** panel displays the current server time, next/last run times, the Lambda response payload, AWS CLI stdout/stderr, and the decoded CloudWatch log tail when available.

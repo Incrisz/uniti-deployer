@@ -4,7 +4,7 @@ import os
 import subprocess
 import tempfile
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
@@ -108,8 +108,25 @@ def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, 
     return schedule
 
 
-def _schedule_job(schedule_fields: Dict[str, str], mode: str = "cron", daily_time_value: Optional[str] = None) -> Optional[str]:
+def _schedule_job(
+    schedule_fields: Dict[str, str],
+    mode: str = "cron",
+    daily_time_value: Optional[str] = None,
+) -> Optional[str]:
     """Create or update the scheduled job."""
+    target_next_run: Optional[datetime] = None
+
+    if mode == "daily" and daily_time_value:
+        try:
+            target_time = datetime.strptime(daily_time_value, "%H:%M").time()
+        except ValueError:
+            raise ValueError(f"Invalid daily time value: {daily_time_value}") from None
+
+        now = datetime.now()
+        target_next_run = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
+        if target_next_run <= now:
+            target_next_run += timedelta(days=1)
+
     try:
         trigger = CronTrigger(
             month=schedule_fields["month"],
@@ -123,7 +140,13 @@ def _schedule_job(schedule_fields: Dict[str, str], mode: str = "cron", daily_tim
         raise ValueError(f"Invalid cron configuration: {exc}") from exc
 
     _ensure_scheduler_started()
-    scheduler.add_job(_scheduled_job_run, trigger=trigger, id=SCHEDULER_JOB_ID, replace_existing=True)
+    scheduler.add_job(
+        _scheduled_job_run,
+        trigger=trigger,
+        id=SCHEDULER_JOB_ID,
+        replace_existing=True,
+        next_run_time=target_next_run,
+    )
     job = scheduler.get_job(SCHEDULER_JOB_ID)
 
     with _state_lock:
