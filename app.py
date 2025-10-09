@@ -18,6 +18,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
+LOCAL_TZ = datetime.now().astimezone().tzinfo
+
 CRON_JOB_ID = "web_cron_job"
 DAILY_JOB_ID = "web_daily_job"
 DEFAULT_SCHEDULE = {
@@ -28,7 +30,7 @@ DEFAULT_SCHEDULE = {
     "day_of_week": "*",
 }
 
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone=LOCAL_TZ)
 _scheduler_lock = threading.Lock()
 _scheduler_started = False
 
@@ -60,7 +62,7 @@ schedule_state: Dict[str, Any] = {
 
 
 def _format_display_time(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return dt.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _ensure_scheduler_started() -> None:
@@ -126,7 +128,7 @@ def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, 
 
 def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
     """Create or update the cron-based scheduled job."""
-    now = datetime.now()
+    now = datetime.now(LOCAL_TZ)
     try:
         trigger = CronTrigger(
             month=schedule_fields["month"],
@@ -154,8 +156,9 @@ def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
         kwargs={"source": "cron"},
     )
 
-    display = _format_display_time(next_run_time)
-    iso_value = next_run_time.isoformat()
+    local_next = next_run_time.astimezone(LOCAL_TZ)
+    display = _format_display_time(local_next)
+    iso_value = local_next.isoformat()
 
     with _state_lock:
         schedule_state["cron"]["enabled"] = True
@@ -169,7 +172,7 @@ def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
 
 def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
     """Create or update the daily scheduled job."""
-    now = datetime.now()
+    now = datetime.now(LOCAL_TZ)
     try:
         parsed_time = datetime.strptime(daily_time_value, "%H:%M").time()
     except ValueError as exc:
@@ -179,7 +182,7 @@ def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
     if target_next_run <= now:
         target_next_run += timedelta(days=1)
 
-    trigger = CronTrigger(hour=str(parsed_time.hour), minute=str(parsed_time.minute), second="0")
+    trigger = CronTrigger(hour=str(parsed_time.hour), minute=str(parsed_time.minute), second="0", timezone=LOCAL_TZ)
 
     _ensure_scheduler_started()
     scheduler.add_job(
@@ -191,14 +194,15 @@ def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
         kwargs={"source": "daily"},
     )
 
-    next_iso = target_next_run.isoformat()
+    next_local = target_next_run.astimezone(LOCAL_TZ)
+    next_iso = next_local.isoformat()
     with _state_lock:
         schedule_state["daily"]["enabled"] = True
         schedule_state["daily"]["time"] = daily_time_value
         schedule_state["daily"]["next_run"] = next_iso
-        schedule_state["daily"]["next_run_display"] = _format_display_time(target_next_run)
+        schedule_state["daily"]["next_run_display"] = _format_display_time(next_local)
 
-    app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, _format_display_time(target_next_run))
+    app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, _format_display_time(next_local))
     return next_iso
 
 
@@ -246,14 +250,14 @@ def _get_scheduler_status() -> Dict[str, Any]:
         }
 
     snapshot["scheduler_running"] = _scheduler_started and scheduler.running
-    snapshot["server_time"] = datetime.now().isoformat()
+    snapshot["server_time"] = datetime.now(LOCAL_TZ).isoformat()
 
     next_candidates = []
     if _scheduler_started:
         cron_job = scheduler.get_job(CRON_JOB_ID)
         daily_job = scheduler.get_job(DAILY_JOB_ID)
         if cron_job and cron_job.next_run_time:
-            cron_dt = cron_job.next_run_time
+            cron_dt = cron_job.next_run_time.astimezone(LOCAL_TZ)
             display = _format_display_time(cron_dt)
             iso_value = cron_dt.isoformat()
             snapshot["cron"]["next_run"] = iso_value
@@ -262,7 +266,7 @@ def _get_scheduler_status() -> Dict[str, Any]:
             schedule_state["cron"]["next_run_display"] = display
             next_candidates.append((cron_dt, iso_value, display))
         if daily_job and daily_job.next_run_time:
-            daily_dt = daily_job.next_run_time
+            daily_dt = daily_job.next_run_time.astimezone(LOCAL_TZ)
             display = _format_display_time(daily_dt)
             iso_value = daily_dt.isoformat()
             snapshot["daily"]["next_run"] = iso_value
@@ -433,7 +437,7 @@ def _scheduled_job_run(source: str) -> None:
             job_id = CRON_JOB_ID if source == "cron" else DAILY_JOB_ID
             job = scheduler.get_job(job_id)
             if job and job.next_run_time:
-                run_dt = job.next_run_time
+                run_dt = job.next_run_time.astimezone(LOCAL_TZ)
                 schedule_state[source]["next_run"] = run_dt.isoformat()
                 schedule_state[source]["next_run_display"] = _format_display_time(run_dt)
             else:
