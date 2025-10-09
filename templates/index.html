@@ -404,27 +404,18 @@
         }, 5000);
       }
 
-      function formatIsoString(value) {
-        if (!value) {
-          return "";
-        }
-        if (typeof value === "string") {
-          return value.replace("T", " ").replace(/\.\d+/, "").replace(/([+-]\d{2}:\d{2})$/, " $1");
-        }
-        if (value instanceof Date) {
-          return value.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
-        }
-        return String(value);
-      }
-
       function formatTimestamp(value) {
-        const formatted = formatIsoString(value);
-        return formatted || "—";
+        if (!value) {
+          return "—";
+        }
+        return value;
       }
 
       function formatServerClock(value) {
-        const formatted = formatIsoString(value);
-        return formatted || "—";
+        if (!value) {
+          return "—";
+        }
+        return value;
       }
 
       function formatDetails(message, details) {
