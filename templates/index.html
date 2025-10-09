@@ -3,715 +3,100 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Web Cron Scheduler</title>
+    <title>AWS CLI Credential Manager</title>
     <style>
-      :root {
-        color-scheme: light;
-      }
-
       body {
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-        background: #f8fafc;
-        color: #0f172a;
-        margin: 0;
-        padding: 0;
-      }
-
-      main {
-        max-width: 880px;
-        margin: 0 auto;
-        padding: 2.5rem 1.5rem 3rem;
-        display: flex;
-        flex-direction: column;
-        gap: 1.75rem;
-      }
-
-      h1 {
-        font-size: 1.9rem;
-        margin: 0 0 0.5rem;
-      }
-
-      p.lead {
-        margin: 0;
-        color: #475569;
-      }
-
-      section {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
-      }
-
-      section h2 {
-        margin: 0 0 1.1rem;
-        font-size: 1.25rem;
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 1rem;
-      }
-
-      label {
-        display: flex;
-        flex-direction: column;
-        gap: 0.4rem;
-        font-size: 0.9rem;
-        color: #334155;
-      }
-
-      input {
-        padding: 0.6rem 0.75rem;
-        border-radius: 8px;
-        border: 1px solid #cbd5f5;
-        font-size: 0.95rem;
-        background: #ffffff;
-      }
-
-      input:focus {
-        border-color: #2563eb;
-        outline: none;
-        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
-      }
-
-      button {
-        padding: 0.75rem 1.5rem;
-        border: none;
-        border-radius: 8px;
-        background: #2563eb;
-        color: #ffffff;
-        font-size: 0.95rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s ease-in-out;
-      }
-
-      button:hover:not(:disabled) {
-        background: #1d4ed8;
-      }
-
-      button:disabled {
-        background: #94a3b8;
-        cursor: not-allowed;
-      }
-
-      button.secondary {
-        background: #f1f5f9;
-        color: #1e293b;
-      }
-
-      button.secondary:hover:not(:disabled) {
-        background: #e2e8f0;
-      }
-
-      .button-row {
-        margin-top: 1.2rem;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.8rem;
-      }
-
-      .helper {
-        margin-top: 0.45rem;
-        font-size: 0.85rem;
-        color: #64748b;
-      }
-
-      #status-board {
-        display: grid;
-        gap: 0.55rem;
-        font-size: 0.95rem;
-      }
-
-      .status-line {
-        display: flex;
-        gap: 0.5rem;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-
-      .badge {
-        display: inline-block;
-        padding: 0.18rem 0.65rem;
-        border-radius: 999px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        background: #e2e8f0;
-        color: #1e293b;
-      }
-
-      .badge[data-state="active"] {
-        background: #bbf7d0;
-        color: #166534;
-      }
-
-      .badge[data-state="inactive"] {
-        background: #fee2e2;
-        color: #b91c1c;
-      }
-
-      .badge[data-state="idle"] {
-        background: #dbeafe;
-        color: #1d4ed8;
-      }
-
-      .badge[data-state="success"] {
-        background: #bbf7d0;
-        color: #166534;
-      }
-
-      .badge[data-state="failed"] {
-        background: #fecaca;
-        color: #b91c1c;
-      }
-
-      pre {
-        background: #0f172a;
-        color: #e2e8f0;
-        padding: 1rem;
-        border-radius: 10px;
-        overflow-x: auto;
-        white-space: pre-wrap;
+        margin: 2rem auto;
+        max-width: 640px;
         line-height: 1.5;
-        border: 1px solid #1e293b;
-        min-height: 120px;
       }
-
-      pre[data-status="running"] {
-        border-left: 4px solid #f59e0b;
+      label {
+        display: block;
+        margin-bottom: 1rem;
       }
-
-      pre[data-status="success"] {
-        border-left: 4px solid #16a34a;
+      input {
+        width: 100%;
+        padding: 0.5rem;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
       }
-
-      pre[data-status="failed"] {
-        border-left: 4px solid #dc2626;
+      button {
+        padding: 0.6rem 1.2rem;
+        border: none;
+        border-radius: 6px;
+        background: #2563eb;
+        color: #fff;
+        cursor: pointer;
       }
-
-      #flash {
-        border-radius: 8px;
-        padding: 0.75rem 1rem;
-        margin-top: 0.75rem;
-        font-size: 0.9rem;
-      }
-
-      #flash[data-state="info"] {
-        background: #dbeafe;
-        color: #1d4ed8;
-      }
-
-      #flash[data-state="success"] {
-        background: #dcfce7;
-        color: #166534;
-      }
-
-      #flash[data-state="error"] {
-        background: #fee2e2;
-        color: #b91c1c;
-      }
-
-      .hidden {
-        display: none;
-      }
-
-      @media (max-width: 640px) {
-        main {
-          padding: 1.75rem 1rem 2.5rem;
-        }
-
-        .button-row {
-          flex-direction: column;
-        }
-
-        button {
-          width: 100%;
-        }
+      pre {
+        background: #111827;
+        color: #e5e7eb;
+        padding: 1rem;
+        border-radius: 6px;
+        white-space: pre-wrap;
       }
     </style>
   </head>
   <body>
-    <main>
-      <header>
-        <h1>Web Cron Scheduler</h1>
-        <p class="lead">
-          Configure a cron-like schedule, start or stop it on demand, and trigger the job manually from the browser.
-        </p>
-      </header>
-
-      <section>
-        <h2>Cron Schedule</h2>
-        <form id="schedule-form" autocomplete="off">
-          <div class="grid">
-            <label>
-              <span>Minute</span>
-              <input type="text" name="minute" placeholder="0" />
-            </label>
-            <label>
-              <span>Hour</span>
-              <input type="text" name="hour" placeholder="*" />
-            </label>
-            <label>
-              <span>Day of Month</span>
-              <input type="text" name="day_of_month" placeholder="*" />
-            </label>
-            <label>
-              <span>Month</span>
-              <input type="text" name="month" placeholder="*" />
-            </label>
-            <label>
-              <span>Day of Week</span>
-              <input type="text" name="day_of_week" placeholder="*" />
-            </label>
-          </div>
-          <p class="helper">
-            Use standard cron syntax. Leaving a field empty defaults to <code>*</code>. Saving the schedule will enable the
-            background job.
-          </p>
-          <div class="button-row">
-            <button type="submit" id="save-schedule">Save &amp; Start Cron</button>
-            <button type="button" class="secondary" id="stop-cron">Stop Cron</button>
-          </div>
-        </form>
-        <div id="flash" class="hidden" data-state="info"></div>
-      </section>
-
-      <!-- <section>
-        <h2>Daily Time Scheduler</h2>
-        <form id="daily-form" autocomplete="off">
-          <label>
-            <span>Daily run time</span>
-            <input type="time" name="daily-time" id="daily-time" />
-          </label>
-          <p class="helper">
-            Select a daily server time using 24-hour format (e.g., <code>21:00</code> for 9&nbsp;PM). Saving this schedule
-            replaces any cron expression. The job will run once per day at the selected time.
-          </p>
-          <div class="button-row">
-            <button type="submit" id="save-daily">Save &amp; Start Daily</button>
-            <button type="button" class="secondary" id="stop-daily">Stop Daily</button>
-          </div>
-        </form>
-      </section> -->
-
-      <section>
-        <h2>Manual Run</h2>
-        <p class="helper">Trigger the cron job right now without waiting for the next schedule.</p>
-        <button id="run-now">Run Job Now</button>
-      </section>
-
-      <section>
-        <h2>Status</h2>
-        <div id="status-board">
-          <div class="status-line">
-            <strong>Server time:</strong>
-            <span id="server-time">—</span>
-          </div>
-          <div class="status-line">
-            <strong>Cron schedule:</strong>
-            <span class="badge" id="cron-state" data-state="inactive">Stopped</span>
-            <span id="cron-next-run" class="helper"></span>
-          </div>
-          <div class="status-line">
-            <strong>Daily schedule:</strong>
-            <span class="badge" id="daily-state" data-state="inactive">Stopped</span>
-            <span id="daily-next-run" class="helper"></span>
-          </div>
-          <div class="status-line">
-            <strong>Scheduler:</strong>
-            <span class="badge" id="scheduler-state" data-state="inactive">Stopped</span>
-          </div>
-          <div class="status-line">
-            <strong>Job:</strong>
-            <span class="badge" id="running-state" data-state="idle">Idle</span>
-            <span id="current-trigger" class="helper"></span>
-          </div>
-          <div class="status-line">
-            <strong>Next run:</strong>
-            <span id="next-run">—</span>
-          </div>
-          <div class="status-line">
-            <strong>Last run:</strong>
-            <span id="last-run">Never</span>
-          </div>
-          <div class="status-line">
-            <strong>Result:</strong>
-            <span class="badge" id="last-result-state" data-state="idle">Pending</span>
-            <span id="last-result" class="helper"></span>
-          </div>
-          <div class="status-line">
-            <strong>Runs completed:</strong>
-            <span id="run-count">0</span>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h2>Latest Message</h2>
-        <pre id="output" data-status="idle">No runs yet.</pre>
-      </section>
-    </main>
-
+    <h1>AWS CLI Credential Manager</h1>
+    <p>Update AWS CLI credentials using a simple web interface.</p>
+    <form id="aws-form">
+      <label>
+        <span>Profile (optional)</span>
+        <input type="text" name="profile" value="{{ default_profile }}" />
+      </label>
+      <label>
+        <span>Region</span>
+        <input type="text" name="region" value="{{ default_region }}" />
+      </label>
+      <label>
+        <span>AWS Access Key ID</span>
+        <input type="text" name="aws_access_key_id" required />
+      </label>
+      <label>
+        <span>AWS Secret Access Key</span>
+        <input type="password" name="aws_secret_access_key" required />
+      </label>
+      <label>
+        <span>AWS Session Token (optional)</span>
+        <input type="password" name="aws_session_token" />
+      </label>
+      <button type="submit">Save Credentials</button>
+    </form>
+    <pre id="aws-output">Awaiting input…</pre>
     <script>
-      const scheduleForm = document.getElementById("schedule-form");
-      const flash = document.getElementById("flash");
-      const runBtn = document.getElementById("run-now");
-      const saveScheduleBtn = document.getElementById("save-schedule");
-      const stopCronBtn = document.getElementById("stop-cron");
-      const dailyForm = document.getElementById("daily-form");
-      const dailyInput = document.getElementById("daily-time");
-      const saveDailyBtn = document.getElementById("save-daily");
-      const stopDailyBtn = document.getElementById("stop-daily");
-      const schedulerBadge = document.getElementById("scheduler-state");
-      const cronBadge = document.getElementById("cron-state");
-      const cronNextRunLabel = document.getElementById("cron-next-run");
-      const dailyBadge = document.getElementById("daily-state");
-      const dailyNextRunLabel = document.getElementById("daily-next-run");
-      const runningBadge = document.getElementById("running-state");
-      const triggerLabel = document.getElementById("current-trigger");
-      const nextRunLabel = document.getElementById("next-run");
-      const lastRunLabel = document.getElementById("last-run");
-      const lastResultBadge = document.getElementById("last-result-state");
-      const lastResultText = document.getElementById("last-result");
-      const runCountLabel = document.getElementById("run-count");
-      const serverTimeLabel = document.getElementById("server-time");
-      const output = document.getElementById("output");
+      const form = document.getElementById("aws-form");
+      const output = document.getElementById("aws-output");
 
-      let flashTimeoutId = null;
-      let scheduleInitialized = false;
-      let dailyInitialized = false;
-
-      const cronFields = ["minute", "hour", "day_of_month", "month", "day_of_week"];
-
-      function setFlash(message, state = "info") {
-        if (!message) {
-          flash.classList.add("hidden");
-          return;
-        }
-        flash.textContent = message;
-        flash.dataset.state = state;
-        flash.classList.remove("hidden");
-        if (flashTimeoutId) {
-          clearTimeout(flashTimeoutId);
-        }
-        flashTimeoutId = setTimeout(() => {
-          flash.classList.add("hidden");
-        }, 5000);
-      }
-
-      function formatTimestamp(value) {
-        if (!value) {
-          return "—";
-        }
-        return value;
-      }
-
-      function formatServerClock(value) {
-        if (!value) {
-          return "—";
-        }
-        return value;
-      }
-
-      function formatDetails(message, details) {
-        const lines = [];
-        if (message) {
-          lines.push(message);
-        }
-
-        const info = details && typeof details === "object" ? details : {};
-
-        if (info.function_response) {
-          lines.push(`Response:\n${info.function_response}`);
-        }
-
-        if (info.log_result) {
-          lines.push(`Logs:\n${info.log_result.trim()}`);
-        }
-
-        if (info.stdout && !info.metadata) {
-          lines.push(`AWS CLI stdout:\n${info.stdout}`);
-        }
-
-        if (info.stderr) {
-          lines.push(`AWS CLI stderr:\n${info.stderr}`);
-        }
-
-        if (Number.isFinite(info.returncode)) {
-          lines.push(`Return code: ${info.returncode}`);
-        }
-
-        if (info.metadata) {
-          lines.push(`Metadata:\n${JSON.stringify(info.metadata, null, 2)}`);
-        }
-
-        if (info.error) {
-          lines.push(`Error:\n${info.error}`);
-        }
-
-        if (!lines.length) {
-          return "No runs yet.";
-        }
-
-        return lines.join("\n\n");
-      }
-
-      function setButtonLoading(button, isLoading, label, loadingLabel, unlockOnFinish = true) {
-        if (isLoading) {
-          button.disabled = true;
-          button.dataset.originalLabel = label || button.textContent;
-          button.textContent = loadingLabel || "Working…";
-        } else {
-          const original = button.dataset.originalLabel || label || button.textContent;
-          delete button.dataset.originalLabel;
-          if (unlockOnFinish) {
-            button.disabled = false;
-          }
-          button.textContent = original;
-        }
-      }
-
-      function renderStatus(data) {
-        if (!data || typeof data !== "object") {
-          return;
-        }
-
-        serverTimeLabel.textContent = formatServerClock(data.server_time);
-
-        const cronData = data.cron || {};
-        const dailyData = data.daily || {};
-
-        const cronEnabled = Boolean(cronData.enabled);
-        cronBadge.textContent = cronEnabled ? "Active" : "Stopped";
-        cronBadge.dataset.state = cronEnabled ? "active" : "inactive";
-        const cronNextDisplay = cronData.next_run_display || formatTimestamp(cronData.next_run);
-        cronNextRunLabel.textContent = cronNextDisplay ? `Next: ${cronNextDisplay}` : "";
-
-        const dailyEnabled = Boolean(dailyData.enabled);
-        dailyBadge.textContent = dailyEnabled ? "Active" : "Stopped";
-        dailyBadge.dataset.state = dailyEnabled ? "active" : "inactive";
-        const dailyNextDisplay = dailyData.next_run_display || formatTimestamp(dailyData.next_run);
-        dailyNextRunLabel.textContent = dailyNextDisplay ? `Next: ${dailyNextDisplay}` : "";
-
-        const schedulerActive = cronEnabled || dailyEnabled || Boolean(data.is_running);
-        schedulerBadge.textContent = schedulerActive ? "Active" : "Stopped";
-        schedulerBadge.dataset.state = schedulerActive ? "active" : "inactive";
-
-        runningBadge.textContent = data.is_running ? "Running" : "Idle";
-        runningBadge.dataset.state = data.is_running ? "active" : "idle";
-
-        triggerLabel.textContent = data.current_trigger ? `(via ${data.current_trigger})` : "";
-
-        const nextCandidates = [];
-        if (cronData.next_run) {
-          nextCandidates.push({ iso: cronData.next_run, display: cronNextDisplay });
-        }
-        if (dailyData.next_run) {
-          nextCandidates.push({ iso: dailyData.next_run, display: dailyNextDisplay });
-        }
-        const validNextCandidates = nextCandidates
-          .map((entry) => ({ ...entry, date: new Date(entry.iso) }))
-          .filter((entry) => !Number.isNaN(entry.date.getTime()));
-        validNextCandidates.sort((a, b) => a.date - b.date);
-        nextRunLabel.textContent = validNextCandidates.length
-          ? validNextCandidates[0].display || formatTimestamp(validNextCandidates[0].iso)
-          : "—";
-
-        lastRunLabel.textContent = data.last_run_at ? formatTimestamp(data.last_run_at) : "Never";
-        lastResultText.textContent = data.last_message || "";
-        runCountLabel.textContent = data.run_count ?? 0;
-
-        if (data.last_success === true) {
-          lastResultBadge.textContent = "Success";
-          lastResultBadge.dataset.state = "success";
-          output.dataset.status = "success";
-        } else if (data.last_success === false) {
-          lastResultBadge.textContent = "Failed";
-          lastResultBadge.dataset.state = "failed";
-          output.dataset.status = "failed";
-        } else {
-          lastResultBadge.textContent = "Pending";
-          lastResultBadge.dataset.state = "idle";
-          output.dataset.status = "idle";
-        }
-
-        output.textContent = formatDetails(data.last_message, data.last_details);
-
-        if (!scheduleInitialized && cronData.schedule) {
-          cronFields.forEach((field) => {
-            if (field in cronData.schedule) {
-              const input = scheduleForm.elements.namedItem(field);
-              if (input) {
-                input.value = cronData.schedule[field];
-              }
-            }
-          });
-          scheduleInitialized = true;
-        }
-
-        if (!dailyInitialized && dailyData.time && dailyInput) {
-          dailyInput.value = dailyData.time;
-          dailyInitialized = true;
-        }
-
-        const jobRunning = Boolean(data.is_running);
-        runBtn.textContent = jobRunning ? "Job Running…" : "Run Job Now";
-        runBtn.disabled = jobRunning;
-      }
-
-      async function refreshStatus() {
-        try {
-          const response = await fetch("/job/status");
-          if (!response.ok) {
-            throw new Error(`Status check failed (${response.status})`);
-          }
-          const data = await response.json();
-          renderStatus(data);
-        } catch (error) {
-          setFlash(error.message, "error");
-        }
-      }
-
-      function collectScheduleValues() {
-        return cronFields.reduce((acc, field) => {
-          const input = scheduleForm.elements.namedItem(field);
-          const value = input && input.value ? input.value.trim() : "";
-          acc[field] = value || "*";
-          return acc;
-        }, {});
-      }
-
-      scheduleForm.addEventListener("submit", async (event) => {
+      form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        setButtonLoading(saveScheduleBtn, true, "Save & Start Cron", "Saving…");
-        setFlash("");
+        const formData = new FormData(form);
+        const payload = Object.fromEntries(formData.entries());
+        output.textContent = "Updating credentials…";
         try {
-          const payload = collectScheduleValues();
-          const response = await fetch("/job/schedule", {
+          const response = await fetch("/aws/credentials", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
           const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to update schedule.");
-          }
-          renderStatus(data);
-          setFlash("Cron schedule saved and started.", "success");
+          const details = Array.isArray(data.steps)
+            ? data.steps
+                .map((step) => {
+                  const parts = [`$ ${step.command || ""}`];
+                  if (step.stdout) parts.push(step.stdout);
+                  if (step.stderr) parts.push(`stderr: ${step.stderr}`);
+                  parts.push(`exit code: ${step.returncode}`);
+                  return parts.join("\n");
+                })
+                .join("\n\n")
+            : "";
+          output.textContent = `${data.message || "Update complete."}\n\n${details}`;
         } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(saveScheduleBtn, false, "Save & Start Cron");
+          output.textContent = `Failed to update credentials: ${error}`;
         }
       });
-
-      stopCronBtn.addEventListener("click", async () => {
-        setButtonLoading(stopCronBtn, true, "Stop Cron", "Stopping…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/stop", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "cron" }),
-          });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to stop cron schedule.");
-          }
-          renderStatus(data);
-          setFlash("Cron schedule stopped.", "info");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(stopCronBtn, false, "Stop Cron");
-        }
-      });
-
-      dailyForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const value = dailyInput.value;
-        if (!value) {
-          setFlash("Please provide a daily time value.", "error");
-          return;
-        }
-        setButtonLoading(saveDailyBtn, true, "Save & Start Daily", "Saving…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/daily", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ time: value }),
-          });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to save daily schedule.");
-          }
-          dailyInitialized = true;
-          renderStatus(data);
-          setFlash("Daily schedule saved and started.", "success");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(saveDailyBtn, false, "Save & Start Daily");
-        }
-      });
-
-      stopDailyBtn.addEventListener("click", async () => {
-        setButtonLoading(stopDailyBtn, true, "Stop Daily", "Stopping…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/stop", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "daily" }),
-          });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to stop daily schedule.");
-          }
-          renderStatus(data);
-          setFlash("Daily schedule stopped.", "info");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(stopDailyBtn, false, "Stop Daily");
-        }
-      });
-
-      runBtn.addEventListener("click", async () => {
-        setButtonLoading(runBtn, true, "Run Job Now", "Running…", false);
-        output.dataset.status = "running";
-        output.textContent = "Job started…";
-        setFlash("");
-        try {
-          const response = await fetch("/job/run", { method: "POST" });
-          const data = await response.json();
-          output.textContent = formatDetails(data.message, data.details);
-          if (data.success) {
-            output.dataset.status = "success";
-            setFlash(data.message || "Job completed successfully.", "success");
-          } else {
-            output.dataset.status = "failed";
-            const errorMessage = data.message || data.error || "Job failed.";
-            setFlash(errorMessage, "error");
-          }
-        } catch (error) {
-          output.dataset.status = "failed";
-          output.textContent = `Unexpected error: ${error}`;
-          setFlash("Job failed due to an unexpected error.", "error");
-        } finally {
-          setButtonLoading(runBtn, false, "Run Job Now", undefined, false);
-          await refreshStatus();
-        }
-      });
-
-      refreshStatus();
-      setInterval(refreshStatus, 5000);
     </script>
   </body>
 </html>
