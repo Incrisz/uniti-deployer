@@ -18,7 +18,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-SCHEDULER_JOB_ID = "web_cron_job"
+CRON_JOB_ID = "web_cron_job"
+DAILY_JOB_ID = "web_daily_job"
 DEFAULT_SCHEDULE = {
     "minute": "0",
     "hour": "*",
@@ -41,10 +42,21 @@ job_state: Dict[str, Any] = {
     "schedule": DEFAULT_SCHEDULE.copy(),
     "run_count": 0,
     "last_details": {},
-    "scheduler_mode": None,
-    "daily_time": None,
 }
 _state_lock = threading.Lock()
+
+schedule_state: Dict[str, Any] = {
+    "cron": {
+        "enabled": False,
+        "schedule": DEFAULT_SCHEDULE.copy(),
+        "next_run": None,
+    },
+    "daily": {
+        "enabled": False,
+        "time": None,
+        "next_run": None,
+    },
+}
 
 
 def _ensure_scheduler_started() -> None:
@@ -60,7 +72,7 @@ def _ensure_scheduler_started() -> None:
 
 def _job_event_listener(event: JobExecutionEvent) -> None:
     """Fallback listener to reset state if an unhandled scheduler failure occurs."""
-    if event.job_id != SCHEDULER_JOB_ID or not event.exception:
+    if event.job_id not in {CRON_JOB_ID, DAILY_JOB_ID} or not event.exception:
         return
 
     now = datetime.utcnow().isoformat() + "Z"
@@ -108,25 +120,9 @@ def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, 
     return schedule
 
 
-def _schedule_job(
-    schedule_fields: Dict[str, str],
-    mode: str = "cron",
-    daily_time_value: Optional[str] = None,
-) -> Optional[str]:
-    """Create or update the scheduled job."""
-    target_next_run: Optional[datetime] = None
+def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
+    """Create or update the cron-based scheduled job."""
     now = datetime.now()
-
-    if mode == "daily" and daily_time_value:
-        try:
-            target_time = datetime.strptime(daily_time_value, "%H:%M").time()
-        except ValueError:
-            raise ValueError(f"Invalid daily time value: {daily_time_value}") from None
-
-        target_next_run = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
-        if target_next_run <= now:
-            target_next_run += timedelta(days=1)
-
     try:
         trigger = CronTrigger(
             month=schedule_fields["month"],
@@ -139,59 +135,85 @@ def _schedule_job(
     except ValueError as exc:
         raise ValueError(f"Invalid cron configuration: {exc}") from exc
 
-    computed_next_run = trigger.get_next_fire_time(None, now)
-
-    if computed_next_run is None and target_next_run is None:
+    next_run_time = trigger.get_next_fire_time(None, now)
+    if next_run_time is None:
         raise ValueError("Cron expression will never fire.")
 
-    if target_next_run is not None:
-        next_run_time = target_next_run
-    else:
-        next_run_time = computed_next_run
+    _ensure_scheduler_started()
+    scheduler.add_job(
+        _scheduled_job_run,
+        trigger=trigger,
+        id=CRON_JOB_ID,
+        replace_existing=True,
+        next_run_time=next_run_time,
+        kwargs={"source": "cron"},
+    )
+
+    with _state_lock:
+        schedule_state["cron"]["enabled"] = True
+        schedule_state["cron"]["schedule"] = schedule_fields.copy()
+        schedule_state["cron"]["next_run"] = next_run_time.isoformat()
+
+    app.logger.info("Scheduled cron job with fields=%s next_run=%s", schedule_fields, next_run_time)
+    return next_run_time.isoformat()
+
+
+def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
+    """Create or update the daily scheduled job."""
+    now = datetime.now()
+    try:
+        parsed_time = datetime.strptime(daily_time_value, "%H:%M").time()
+    except ValueError as exc:
+        raise ValueError(f"Invalid time format: {daily_time_value}") from exc
+
+    target_next_run = now.replace(hour=parsed_time.hour, minute=parsed_time.minute, second=0, microsecond=0)
+    if target_next_run <= now:
+        target_next_run += timedelta(days=1)
+
+    trigger = CronTrigger(hour=str(parsed_time.hour), minute=str(parsed_time.minute), second="0")
 
     _ensure_scheduler_started()
-    job_kwargs: Dict[str, Any] = {
-        "trigger": trigger,
-        "id": SCHEDULER_JOB_ID,
-        "replace_existing": True,
-    }
-    if next_run_time is not None:
-        job_kwargs["next_run_time"] = next_run_time
+    scheduler.add_job(
+        _scheduled_job_run,
+        trigger=trigger,
+        id=DAILY_JOB_ID,
+        replace_existing=True,
+        next_run_time=target_next_run,
+        kwargs={"source": "daily"},
+    )
 
-    scheduler.add_job(_scheduled_job_run, **job_kwargs)
-    job = scheduler.get_job(SCHEDULER_JOB_ID)
-    app.logger.info("Scheduled job (mode=%s) with fields=%s next_run=%s", mode, schedule_fields, next_run_time)
+    next_iso = target_next_run.isoformat()
+    with _state_lock:
+        schedule_state["daily"]["enabled"] = True
+        schedule_state["daily"]["time"] = daily_time_value
+        schedule_state["daily"]["next_run"] = next_iso
+
+    app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, target_next_run)
+    return next_iso
+
+
+def _disable_schedule(schedule_type: str) -> None:
+    """Disable a schedule by type ('cron' or 'daily')."""
+    job_id = CRON_JOB_ID if schedule_type == "cron" else DAILY_JOB_ID
+
+    if _scheduler_started:
+        try:
+            scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
 
     with _state_lock:
-        job_state["job_enabled"] = True
-        job_state["schedule"] = schedule_fields.copy()
-        job_state["scheduler_mode"] = mode
-        job_state["daily_time"] = daily_time_value if mode == "daily" else None
-
-    return job.next_run_time.isoformat() + "Z" if job and job.next_run_time else None
-
-
-def _stop_scheduled_job() -> None:
-    """Remove the scheduled job if it exists."""
-    if not _scheduler_started:
-        with _state_lock:
-            job_state["job_enabled"] = False
-        return
-
-    try:
-        scheduler.remove_job(SCHEDULER_JOB_ID)
-    except JobLookupError:
-        pass
-
-    with _state_lock:
-        job_state["job_enabled"] = False
+        target_state = schedule_state.get(schedule_type)
+        if target_state is not None:
+            target_state["enabled"] = False
+            if schedule_type == "cron":
+                target_state["next_run"] = None
+            else:
+                target_state["next_run"] = None
 
 
 def _get_scheduler_status() -> Dict[str, Any]:
     """Return a snapshot of scheduler and job state."""
-    job = scheduler.get_job(SCHEDULER_JOB_ID) if _scheduler_started else None
-    next_run_time = job.next_run_time.isoformat() + "Z" if job and job.next_run_time else None
-
     with _state_lock:
         snapshot = {
             "is_running": job_state["is_running"],
@@ -199,17 +221,31 @@ def _get_scheduler_status() -> Dict[str, Any]:
             "last_run_at": job_state["last_run_at"],
             "last_success": job_state["last_success"],
             "last_message": job_state["last_message"],
-            "job_enabled": job_state["job_enabled"],
-            "schedule": job_state["schedule"].copy(),
             "run_count": job_state["run_count"],
             "last_details": job_state["last_details"].copy(),
-            "scheduler_mode": job_state["scheduler_mode"],
-            "daily_time": job_state["daily_time"],
+            "cron": {
+                "enabled": schedule_state["cron"]["enabled"],
+                "schedule": schedule_state["cron"]["schedule"].copy(),
+                "next_run": schedule_state["cron"]["next_run"],
+            },
+            "daily": {
+                "enabled": schedule_state["daily"]["enabled"],
+                "time": schedule_state["daily"]["time"],
+                "next_run": schedule_state["daily"]["next_run"],
+            },
         }
 
-    snapshot["next_run_time"] = next_run_time
     snapshot["scheduler_running"] = _scheduler_started and scheduler.running
     snapshot["server_time"] = datetime.now().isoformat()
+
+    if _scheduler_started:
+        cron_job = scheduler.get_job(CRON_JOB_ID)
+        daily_job = scheduler.get_job(DAILY_JOB_ID)
+        if cron_job and cron_job.next_run_time:
+            snapshot["cron"]["next_run"] = cron_job.next_run_time.isoformat()
+        if daily_job and daily_job.next_run_time:
+            snapshot["daily"]["next_run"] = daily_job.next_run_time.isoformat()
+
     return snapshot
 
 
@@ -348,9 +384,9 @@ def _run_job(trigger: str) -> Dict[str, Any]:
         _finalize_job_run(success, message, trigger, details)
 
 
-def _scheduled_job_run() -> None:
+def _scheduled_job_run(source: str) -> None:
     """Background job entrypoint for APScheduler."""
-    result = _run_job("scheduler")
+    result = _run_job(source or "scheduler")
     if result.get("status_code") == 409:
         app.logger.info("Scheduled run skipped: %s", result.get("message"))
         return
@@ -359,6 +395,12 @@ def _scheduled_job_run() -> None:
     app.logger.info("Scheduled run finished with %s", status)
     if not result.get("success"):
         app.logger.error("Scheduled run failed: %s", result.get("message"))
+    with _state_lock:
+        if source in {"cron", "daily"} and _scheduler_started:
+            job_id = CRON_JOB_ID if source == "cron" else DAILY_JOB_ID
+            job = scheduler.get_job(job_id)
+            next_run = job.next_run_time.isoformat() if job and job.next_run_time else None
+            schedule_state[source]["next_run"] = next_run
 
 
 @app.route("/", methods=["GET"])
@@ -429,25 +471,53 @@ def update_daily_schedule():
 
 @app.route("/job/start", methods=["POST"])
 def start_scheduler():
-    with _state_lock:
-        schedule_fields = job_state["schedule"].copy()
-        mode = job_state["scheduler_mode"] or "cron"
-        daily_time_value = job_state["daily_time"]
+    payload = request.get_json(silent=True) or {}
+    schedule_type = payload.get("type")
 
-    try:
-        next_run_time = _schedule_job(schedule_fields, mode=mode, daily_time_value=daily_time_value)
-    except ValueError as exc:
-        return jsonify({"success": False, "error": str(exc)}), 400
+    if schedule_type not in {"cron", "daily", None}:
+        return jsonify({"success": False, "error": "Unknown schedule type."}), 400
+
+    responses = {}
+
+    if schedule_type in (None, "cron"):
+        with _state_lock:
+            cron_config = schedule_state["cron"]["schedule"].copy()
+        try:
+            responses["cron_next_run"] = _schedule_cron_job(cron_config)
+        except ValueError as exc:
+            if schedule_type == "cron":
+                return jsonify({"success": False, "error": str(exc)}), 400
+            responses["cron_error"] = str(exc)
+
+    if schedule_type in (None, "daily"):
+        with _state_lock:
+            daily_time_value = schedule_state["daily"]["time"]
+        if daily_time_value:
+            try:
+                responses["daily_next_run"] = _schedule_daily_job(daily_time_value)
+            except ValueError as exc:
+                if schedule_type == "daily":
+                    return jsonify({"success": False, "error": str(exc)}), 400
+                responses["daily_error"] = str(exc)
+        elif schedule_type == "daily":
+            return jsonify({"success": False, "error": "No daily time configured yet."}), 400
 
     response = _get_scheduler_status()
-    response["next_run_time"] = next_run_time
+    response.update(responses)
     response["success"] = True
     return jsonify(response)
 
 
 @app.route("/job/stop", methods=["POST"])
 def stop_scheduler():
-    _stop_scheduled_job()
+    payload = request.get_json(silent=True) or {}
+    schedule_type = payload.get("type")
+
+    if schedule_type in (None, "cron"):
+        _disable_schedule("cron")
+    if schedule_type in (None, "daily"):
+        _disable_schedule("daily")
+
     response = _get_scheduler_status()
     response["success"] = True
     return jsonify(response)

@@ -274,9 +274,8 @@
             background job.
           </p>
           <div class="button-row">
-            <button type="submit" id="save-schedule">Save &amp; Start</button>
-            <button type="button" class="secondary" id="start-scheduler">Start</button>
-            <button type="button" class="secondary" id="stop-scheduler">Stop</button>
+            <button type="submit" id="save-schedule">Save &amp; Start Cron</button>
+            <button type="button" class="secondary" id="stop-cron">Stop Cron</button>
           </div>
         </form>
         <div id="flash" class="hidden" data-state="info"></div>
@@ -295,6 +294,7 @@
           </p>
           <div class="button-row">
             <button type="submit" id="save-daily">Save &amp; Start Daily</button>
+            <button type="button" class="secondary" id="stop-daily">Stop Daily</button>
           </div>
         </form>
       </section>
@@ -311,6 +311,16 @@
           <div class="status-line">
             <strong>Server time:</strong>
             <span id="server-time">—</span>
+          </div>
+          <div class="status-line">
+            <strong>Cron schedule:</strong>
+            <span class="badge" id="cron-state" data-state="inactive">Stopped</span>
+            <span id="cron-next-run" class="helper"></span>
+          </div>
+          <div class="status-line">
+            <strong>Daily schedule:</strong>
+            <span class="badge" id="daily-state" data-state="inactive">Stopped</span>
+            <span id="daily-next-run" class="helper"></span>
           </div>
           <div class="status-line">
             <strong>Scheduler:</strong>
@@ -352,12 +362,16 @@
       const flash = document.getElementById("flash");
       const runBtn = document.getElementById("run-now");
       const saveScheduleBtn = document.getElementById("save-schedule");
-      const startBtn = document.getElementById("start-scheduler");
-      const stopBtn = document.getElementById("stop-scheduler");
+      const stopCronBtn = document.getElementById("stop-cron");
       const dailyForm = document.getElementById("daily-form");
       const dailyInput = document.getElementById("daily-time");
       const saveDailyBtn = document.getElementById("save-daily");
+      const stopDailyBtn = document.getElementById("stop-daily");
       const schedulerBadge = document.getElementById("scheduler-state");
+      const cronBadge = document.getElementById("cron-state");
+      const cronNextRunLabel = document.getElementById("cron-next-run");
+      const dailyBadge = document.getElementById("daily-state");
+      const dailyNextRunLabel = document.getElementById("daily-next-run");
       const runningBadge = document.getElementById("running-state");
       const triggerLabel = document.getElementById("current-trigger");
       const nextRunLabel = document.getElementById("next-run");
@@ -470,23 +484,6 @@
         }
       }
 
-      function setCronConfigDisabled(disabled) {
-        cronFields.forEach((field) => {
-          const input = scheduleForm.elements.namedItem(field);
-          if (input) {
-            input.disabled = disabled;
-          }
-        });
-        saveScheduleBtn.disabled = disabled;
-      }
-
-      function setDailyConfigDisabled(disabled) {
-        if (dailyInput) {
-          dailyInput.disabled = disabled;
-        }
-        saveDailyBtn.disabled = disabled;
-      }
-
       function renderStatus(data) {
         if (!data || typeof data !== "object") {
           return;
@@ -494,15 +491,40 @@
 
         serverTimeLabel.textContent = formatServerClock(data.server_time);
 
-        schedulerBadge.textContent = data.job_enabled ? "Active" : "Stopped";
-        schedulerBadge.dataset.state = data.job_enabled ? "active" : "inactive";
+        const cronData = data.cron || {};
+        const dailyData = data.daily || {};
+
+        const cronEnabled = Boolean(cronData.enabled);
+        cronBadge.textContent = cronEnabled ? "Active" : "Stopped";
+        cronBadge.dataset.state = cronEnabled ? "active" : "inactive";
+        cronNextRunLabel.textContent = cronData.next_run ? `Next: ${formatTimestamp(cronData.next_run)}` : "";
+
+        const dailyEnabled = Boolean(dailyData.enabled);
+        dailyBadge.textContent = dailyEnabled ? "Active" : "Stopped";
+        dailyBadge.dataset.state = dailyEnabled ? "active" : "inactive";
+        dailyNextRunLabel.textContent = dailyData.next_run ? `Next: ${formatTimestamp(dailyData.next_run)}` : "";
+
+        const schedulerActive = cronEnabled || dailyEnabled || Boolean(data.is_running);
+        schedulerBadge.textContent = schedulerActive ? "Active" : "Stopped";
+        schedulerBadge.dataset.state = schedulerActive ? "active" : "inactive";
 
         runningBadge.textContent = data.is_running ? "Running" : "Idle";
         runningBadge.dataset.state = data.is_running ? "active" : "idle";
 
         triggerLabel.textContent = data.current_trigger ? `(via ${data.current_trigger})` : "";
 
-        nextRunLabel.textContent = formatTimestamp(data.next_run_time);
+        const nextRuns = [cronData.next_run, dailyData.next_run]
+          .map((value) => {
+            if (!value) {
+              return null;
+            }
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? null : parsed;
+          })
+          .filter(Boolean)
+          .sort((a, b) => a - b);
+        nextRunLabel.textContent = nextRuns.length ? formatTimestamp(nextRuns[0].toISOString()) : "—";
+
         lastRunLabel.textContent = data.last_run_at ? formatTimestamp(data.last_run_at) : "Never";
         lastResultText.textContent = data.last_message || "";
         runCountLabel.textContent = data.run_count ?? 0;
@@ -523,35 +545,26 @@
 
         output.textContent = formatDetails(data.last_message, data.last_details);
 
-        if (!scheduleInitialized && data.schedule) {
+        if (!scheduleInitialized && cronData.schedule) {
           cronFields.forEach((field) => {
-            if (field in data.schedule) {
+            if (field in cronData.schedule) {
               const input = scheduleForm.elements.namedItem(field);
               if (input) {
-                input.value = data.schedule[field];
+                input.value = cronData.schedule[field];
               }
             }
           });
           scheduleInitialized = true;
         }
 
-        if (!dailyInitialized && data.daily_time && dailyInput) {
-          dailyInput.value = data.daily_time;
+        if (!dailyInitialized && dailyData.time && dailyInput) {
+          dailyInput.value = dailyData.time;
           dailyInitialized = true;
         }
 
         const jobRunning = Boolean(data.is_running);
         runBtn.textContent = jobRunning ? "Job Running…" : "Run Job Now";
         runBtn.disabled = jobRunning;
-
-        startBtn.disabled = data.job_enabled;
-        stopBtn.disabled = !data.job_enabled;
-
-        const cronLocked = data.job_enabled && data.scheduler_mode === "daily";
-        const dailyLocked = data.job_enabled && data.scheduler_mode === "cron";
-
-        setCronConfigDisabled(cronLocked);
-        setDailyConfigDisabled(dailyLocked);
       }
 
       async function refreshStatus() {
