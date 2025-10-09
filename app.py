@@ -50,13 +50,19 @@ schedule_state: Dict[str, Any] = {
         "enabled": False,
         "schedule": DEFAULT_SCHEDULE.copy(),
         "next_run": None,
+        "next_run_display": None,
     },
     "daily": {
         "enabled": False,
         "time": None,
         "next_run": None,
+        "next_run_display": None,
     },
 }
+
+
+def _format_display_time(dt: datetime) -> str:
+    return dt.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _ensure_scheduler_started() -> None:
@@ -150,13 +156,18 @@ def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
         kwargs={"source": "cron"},
     )
 
+    local_next = next_run_time.astimezone(LOCAL_TZ)
+    display = _format_display_time(local_next)
+    iso_value = local_next.isoformat()
+
     with _state_lock:
         schedule_state["cron"]["enabled"] = True
         schedule_state["cron"]["schedule"] = schedule_fields.copy()
-        schedule_state["cron"]["next_run"] = next_run_time.isoformat()
+        schedule_state["cron"]["next_run"] = iso_value
+        schedule_state["cron"]["next_run_display"] = display
 
-    app.logger.info("Scheduled cron job with fields=%s next_run=%s", schedule_fields, next_run_time)
-    return next_run_time.isoformat()
+    app.logger.info("Scheduled cron job with fields=%s next_run=%s", schedule_fields, display)
+    return iso_value
 
 
 def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
@@ -188,8 +199,9 @@ def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
         schedule_state["daily"]["enabled"] = True
         schedule_state["daily"]["time"] = daily_time_value
         schedule_state["daily"]["next_run"] = next_iso
+        schedule_state["daily"]["next_run_display"] = _format_display_time(target_next_run)
 
-    app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, target_next_run)
+    app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, _format_display_time(target_next_run))
     return next_iso
 
 
@@ -207,10 +219,8 @@ def _disable_schedule(schedule_type: str) -> None:
         target_state = schedule_state.get(schedule_type)
         if target_state is not None:
             target_state["enabled"] = False
-            if schedule_type == "cron":
-                target_state["next_run"] = None
-            else:
-                target_state["next_run"] = None
+            target_state["next_run"] = None
+            target_state["next_run_display"] = None
 
 
 def _get_scheduler_status() -> Dict[str, Any]:
@@ -228,11 +238,13 @@ def _get_scheduler_status() -> Dict[str, Any]:
                 "enabled": schedule_state["cron"]["enabled"],
                 "schedule": schedule_state["cron"]["schedule"].copy(),
                 "next_run": schedule_state["cron"]["next_run"],
+                "next_run_display": schedule_state["cron"]["next_run_display"],
             },
             "daily": {
                 "enabled": schedule_state["daily"]["enabled"],
                 "time": schedule_state["daily"]["time"],
                 "next_run": schedule_state["daily"]["next_run"],
+                "next_run_display": schedule_state["daily"]["next_run_display"],
             },
         }
 
@@ -242,10 +254,31 @@ def _get_scheduler_status() -> Dict[str, Any]:
     if _scheduler_started:
         cron_job = scheduler.get_job(CRON_JOB_ID)
         daily_job = scheduler.get_job(DAILY_JOB_ID)
+        next_candidates = []
         if cron_job and cron_job.next_run_time:
-            snapshot["cron"]["next_run"] = cron_job.next_run_time.astimezone(LOCAL_TZ).isoformat()
+            cron_dt = cron_job.next_run_time.astimezone(LOCAL_TZ)
+            snapshot["cron"]["next_run"] = cron_dt.isoformat()
+            snapshot["cron"]["next_run_display"] = _format_display_time(cron_dt)
+            schedule_state["cron"]["next_run"] = snapshot["cron"]["next_run"]
+            schedule_state["cron"]["next_run_display"] = snapshot["cron"]["next_run_display"]
+            next_candidates.append((cron_dt, snapshot["cron"]["next_run"], snapshot["cron"]["next_run_display"]))
         if daily_job and daily_job.next_run_time:
-            snapshot["daily"]["next_run"] = daily_job.next_run_time.astimezone(LOCAL_TZ).isoformat()
+            daily_dt = daily_job.next_run_time.astimezone(LOCAL_TZ)
+            snapshot["daily"]["next_run"] = daily_dt.isoformat()
+            snapshot["daily"]["next_run_display"] = _format_display_time(daily_dt)
+            schedule_state["daily"]["next_run"] = snapshot["daily"]["next_run"]
+            schedule_state["daily"]["next_run_display"] = snapshot["daily"]["next_run_display"]
+            next_candidates.append((daily_dt, snapshot["daily"]["next_run"], snapshot["daily"]["next_run_display"]))
+        if next_candidates:
+            next_candidates.sort(key=lambda item: item[0])
+            snapshot["next_run"] = next_candidates[0][1]
+            snapshot["next_run_display"] = next_candidates[0][2]
+        else:
+            snapshot["next_run"] = None
+            snapshot["next_run_display"] = None
+    else:
+        snapshot["next_run"] = None
+        snapshot["next_run_display"] = None
 
     return snapshot
 
@@ -400,8 +433,13 @@ def _scheduled_job_run(source: str) -> None:
         if source in {"cron", "daily"} and _scheduler_started:
             job_id = CRON_JOB_ID if source == "cron" else DAILY_JOB_ID
             job = scheduler.get_job(job_id)
-            next_run = job.next_run_time.astimezone(LOCAL_TZ).isoformat() if job and job.next_run_time else None
-            schedule_state[source]["next_run"] = next_run
+            if job and job.next_run_time:
+                local_dt = job.next_run_time.astimezone(LOCAL_TZ)
+                schedule_state[source]["next_run"] = local_dt.isoformat()
+                schedule_state[source]["next_run_display"] = _format_display_time(local_dt)
+            else:
+                schedule_state[source]["next_run"] = None
+                schedule_state[source]["next_run_display"] = None
 
 
 @app.route("/", methods=["GET"])
@@ -432,6 +470,7 @@ def update_schedule():
 
     response = _get_scheduler_status()
     response["cron_next_run"] = next_run_time
+    response["cron_next_run_display"] = schedule_state["cron"]["next_run_display"]
     response["success"] = True
     return jsonify(response)
 
@@ -466,6 +505,7 @@ def update_daily_schedule():
 
     response = _get_scheduler_status()
     response["daily_next_run"] = next_run_time
+    response["daily_next_run_display"] = schedule_state["daily"]["next_run_display"]
     response["success"] = True
     return jsonify(response)
 
@@ -485,6 +525,7 @@ def start_scheduler():
             cron_config = schedule_state["cron"]["schedule"].copy()
         try:
             responses["cron_next_run"] = _schedule_cron_job(cron_config)
+            responses["cron_next_run_display"] = schedule_state["cron"]["next_run_display"]
         except ValueError as exc:
             if schedule_type == "cron":
                 return jsonify({"success": False, "error": str(exc)}), 400
@@ -496,6 +537,7 @@ def start_scheduler():
         if daily_time_value:
             try:
                 responses["daily_next_run"] = _schedule_daily_job(daily_time_value)
+                responses["daily_next_run_display"] = schedule_state["daily"]["next_run_display"]
             except ValueError as exc:
                 if schedule_type == "daily":
                     return jsonify({"success": False, "error": str(exc)}), 400

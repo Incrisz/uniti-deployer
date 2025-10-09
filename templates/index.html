@@ -404,26 +404,27 @@
         }, 5000);
       }
 
-      function formatTimestamp(value) {
+      function formatIsoString(value) {
         if (!value) {
-          return "—";
+          return "";
         }
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) {
-          return value;
+        if (typeof value === "string") {
+          return value.replace("T", " ").replace(/\.\d+/, "").replace(/([+-]\d{2}:\d{2})$/, " $1");
         }
-        return parsed.toLocaleString();
+        if (value instanceof Date) {
+          return value.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+        }
+        return String(value);
+      }
+
+      function formatTimestamp(value) {
+        const formatted = formatIsoString(value);
+        return formatted || "—";
       }
 
       function formatServerClock(value) {
-        if (!value) {
-          return "—";
-        }
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) {
-          return value;
-        }
-        return parsed.toLocaleString();
+        const formatted = formatIsoString(value);
+        return formatted || "—";
       }
 
       function formatDetails(message, details) {
@@ -497,12 +498,14 @@
         const cronEnabled = Boolean(cronData.enabled);
         cronBadge.textContent = cronEnabled ? "Active" : "Stopped";
         cronBadge.dataset.state = cronEnabled ? "active" : "inactive";
-        cronNextRunLabel.textContent = cronData.next_run ? `Next: ${formatTimestamp(cronData.next_run)}` : "";
+        const cronNextDisplay = cronData.next_run_display || formatTimestamp(cronData.next_run);
+        cronNextRunLabel.textContent = cronNextDisplay ? `Next: ${cronNextDisplay}` : "";
 
         const dailyEnabled = Boolean(dailyData.enabled);
         dailyBadge.textContent = dailyEnabled ? "Active" : "Stopped";
         dailyBadge.dataset.state = dailyEnabled ? "active" : "inactive";
-        dailyNextRunLabel.textContent = dailyData.next_run ? `Next: ${formatTimestamp(dailyData.next_run)}` : "";
+        const dailyNextDisplay = dailyData.next_run_display || formatTimestamp(dailyData.next_run);
+        dailyNextRunLabel.textContent = dailyNextDisplay ? `Next: ${dailyNextDisplay}` : "";
 
         const schedulerActive = cronEnabled || dailyEnabled || Boolean(data.is_running);
         schedulerBadge.textContent = schedulerActive ? "Active" : "Stopped";
@@ -513,17 +516,20 @@
 
         triggerLabel.textContent = data.current_trigger ? `(via ${data.current_trigger})` : "";
 
-        const nextRuns = [cronData.next_run, dailyData.next_run]
-          .map((value) => {
-            if (!value) {
-              return null;
-            }
-            const parsed = new Date(value);
-            return Number.isNaN(parsed.getTime()) ? null : parsed;
-          })
-          .filter(Boolean)
-          .sort((a, b) => a - b);
-        nextRunLabel.textContent = nextRuns.length ? formatTimestamp(nextRuns[0].toISOString()) : "—";
+        const nextCandidates = [];
+        if (cronData.next_run) {
+          nextCandidates.push({ iso: cronData.next_run, display: cronNextDisplay });
+        }
+        if (dailyData.next_run) {
+          nextCandidates.push({ iso: dailyData.next_run, display: dailyNextDisplay });
+        }
+        const validNextCandidates = nextCandidates
+          .map((entry) => ({ ...entry, date: new Date(entry.iso) }))
+          .filter((entry) => !Number.isNaN(entry.date.getTime()));
+        validNextCandidates.sort((a, b) => a.date - b.date);
+        nextRunLabel.textContent = validNextCandidates.length
+          ? validNextCandidates[0].display || formatTimestamp(validNextCandidates[0].iso)
+          : "—";
 
         lastRunLabel.textContent = data.last_run_at ? formatTimestamp(data.last_run_at) : "Never";
         lastResultText.textContent = data.last_message || "";
