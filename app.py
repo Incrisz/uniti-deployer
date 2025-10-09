@@ -115,6 +115,7 @@ def _schedule_job(
 ) -> Optional[str]:
     """Create or update the scheduled job."""
     target_next_run: Optional[datetime] = None
+    now = datetime.now()
 
     if mode == "daily" and daily_time_value:
         try:
@@ -122,7 +123,6 @@ def _schedule_job(
         except ValueError:
             raise ValueError(f"Invalid daily time value: {daily_time_value}") from None
 
-        now = datetime.now()
         target_next_run = now.replace(hour=target_time.hour, minute=target_time.minute, second=0, microsecond=0)
         if target_next_run <= now:
             target_next_run += timedelta(days=1)
@@ -139,17 +139,28 @@ def _schedule_job(
     except ValueError as exc:
         raise ValueError(f"Invalid cron configuration: {exc}") from exc
 
+    computed_next_run = trigger.get_next_fire_time(None, now)
+
+    if computed_next_run is None and target_next_run is None:
+        raise ValueError("Cron expression will never fire.")
+
+    if target_next_run is not None:
+        next_run_time = target_next_run
+    else:
+        next_run_time = computed_next_run
+
     _ensure_scheduler_started()
     job_kwargs: Dict[str, Any] = {
         "trigger": trigger,
         "id": SCHEDULER_JOB_ID,
         "replace_existing": True,
     }
-    if target_next_run is not None:
-        job_kwargs["next_run_time"] = target_next_run
+    if next_run_time is not None:
+        job_kwargs["next_run_time"] = next_run_time
 
     scheduler.add_job(_scheduled_job_run, **job_kwargs)
     job = scheduler.get_job(SCHEDULER_JOB_ID)
+    app.logger.info("Scheduled job (mode=%s) with fields=%s next_run=%s", mode, schedule_fields, next_run_time)
 
     with _state_lock:
         job_state["job_enabled"] = True
