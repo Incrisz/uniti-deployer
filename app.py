@@ -425,12 +425,12 @@ def update_schedule():
     payload = request.get_json(silent=True) or {}
     schedule_fields = _normalize_schedule_payload(payload)
     try:
-        next_run_time = _schedule_job(schedule_fields, mode="cron")
+        next_run_time = _schedule_cron_job(schedule_fields)
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
     response = _get_scheduler_status()
-    response["next_run_time"] = next_run_time
+    response["cron_next_run"] = next_run_time
     response["success"] = True
     return jsonify(response)
 
@@ -459,12 +459,12 @@ def update_daily_schedule():
     daily_value = parsed_time.strftime("%H:%M")
 
     try:
-        next_run_time = _schedule_job(schedule_fields, mode="daily", daily_time_value=daily_value)
+        next_run_time = _schedule_daily_job(daily_value)
     except ValueError as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
 
     response = _get_scheduler_status()
-    response["next_run_time"] = next_run_time
+    response["daily_next_run"] = next_run_time
     response["success"] = True
     return jsonify(response)
 

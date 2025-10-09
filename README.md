@@ -35,10 +35,10 @@ python app.py
 
 Open `http://localhost:8081` to manage the scheduler:
 
-- **Save & Start** persists cron fields and immediately enables the background job.
-- **Save & Start Daily** sets a single daily run time in 24-hour format (e.g., `21:00` for 9 PM) and disables the cron editor while active.
-- **Start/Stop** toggles whichever schedule (cron or daily) was last saved.
+- **Save & Start Cron** persists the cron expression and enables that recurring schedule.
+- **Save & Start Daily** sets a single daily run time in 24-hour format (e.g., `21:00` for 9 PM) that can run alongside the cron schedule.
+- **Stop Cron / Stop Daily** let you pause either schedule independently without losing its configuration.
 - **Run Job Now** executes the Lambda immediately, independent of the schedule.
-- The **Status** panel displays the current server time, next/last run times, the Lambda response payload, AWS CLI stdout/stderr, and the decoded CloudWatch log tail when available.
+- The **Status** panel displays the current server time, cron/daily next-run timestamps, the latest Lambda response payload, AWS CLI stdout/stderr, and the decoded CloudWatch log tail when available.
 
 To customise behaviour beyond the payload, edit `_execute_job_task` in `app.py` to adjust AWS CLI arguments or add pre/post hooks. APScheduler runs inside the Flask process, so use a process manager (Gunicorn, systemd, etc.) in production to keep the scheduler alive.

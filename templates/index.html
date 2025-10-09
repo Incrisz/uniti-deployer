@@ -591,7 +591,7 @@
 
       scheduleForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        setButtonLoading(saveScheduleBtn, true, "Save & Start", "Saving…");
+        setButtonLoading(saveScheduleBtn, true, "Save & Start Cron", "Saving…");
         setFlash("");
         try {
           const payload = collectScheduleValues();
@@ -605,49 +605,33 @@
             throw new Error(data.error || "Unable to update schedule.");
           }
           renderStatus(data);
-          setFlash("Schedule saved and scheduler started.", "success");
+          setFlash("Cron schedule saved and started.", "success");
         } catch (error) {
           setFlash(error.message, "error");
         } finally {
-          setButtonLoading(saveScheduleBtn, false, "Save & Start");
+          setButtonLoading(saveScheduleBtn, false, "Save & Start Cron");
         }
       });
 
-      startBtn.addEventListener("click", async () => {
-        setButtonLoading(startBtn, true, "Start", "Starting…");
+      stopCronBtn.addEventListener("click", async () => {
+        setButtonLoading(stopCronBtn, true, "Stop Cron", "Stopping…");
         setFlash("");
         try {
-          const response = await fetch("/job/start", { method: "POST" });
+          const response = await fetch("/job/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "cron" }),
+          });
           const data = await response.json();
           if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to start scheduler.");
+            throw new Error(data.error || "Unable to stop cron schedule.");
           }
           renderStatus(data);
-          setFlash("Scheduler started.", "success");
+          setFlash("Cron schedule stopped.", "info");
         } catch (error) {
           setFlash(error.message, "error");
         } finally {
-          setButtonLoading(startBtn, false, "Start");
-          refreshStatus();
-        }
-      });
-
-      stopBtn.addEventListener("click", async () => {
-        setButtonLoading(stopBtn, true, "Stop", "Stopping…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/stop", { method: "POST" });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to stop scheduler.");
-          }
-          renderStatus(data);
-          setFlash("Scheduler stopped.", "info");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(stopBtn, false, "Stop");
-          refreshStatus();
+          setButtonLoading(stopCronBtn, false, "Stop Cron");
         }
       });
 
@@ -677,6 +661,28 @@
           setFlash(error.message, "error");
         } finally {
           setButtonLoading(saveDailyBtn, false, "Save & Start Daily");
+        }
+      });
+
+      stopDailyBtn.addEventListener("click", async () => {
+        setButtonLoading(stopDailyBtn, true, "Stop Daily", "Stopping…");
+        setFlash("");
+        try {
+          const response = await fetch("/job/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "daily" }),
+          });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to stop daily schedule.");
+          }
+          renderStatus(data);
+          setFlash("Daily schedule stopped.", "info");
+        } catch (error) {
+          setFlash(error.message, "error");
+        } finally {
+          setButtonLoading(stopDailyBtn, false, "Stop Daily");
         }
       });
 
