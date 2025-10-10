@@ -21,7 +21,7 @@ python app.py
 
 Environment variables (a `.env` file is automatically loaded):
 
-- `PORT` – port the Flask server listens on. Defaults to `8081`.
+- `PORT` – port the Flask server listens on. Defaults to `8083`.
 - `LAMBDA_FUNCTION_NAME` – name of the Lambda function to invoke. Defaults to `firebase-pull-usage`.
 - `LAMBDA_PAYLOAD` – JSON payload sent with each invocation. Defaults to `{}`.
 - `LAMBDA_LOG_TYPE` – value for `--log-type`. Defaults to `Tail` so the last 4 KB of logs appear in the UI.
@@ -33,7 +33,7 @@ Environment variables (a `.env` file is automatically loaded):
 python app.py
 ```
 
-Open `http://localhost:8081` to manage the scheduler:
+Open `http://localhost:8083` to manage the scheduler:
 
 - **Save & Start Cron** persists the cron expression and enables that recurring schedule.
 - **Save & Start Daily** sets a single daily run time in 24-hour format (e.g., `21:00` for 9 PM) that can run alongside the cron schedule.

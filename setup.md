@@ -1,7 +1,7 @@
 
 
 ## run in the background
-nohup gunicorn -w 2 -b 0.0.0.0:8081 app:app >/var/log/uniti-cron.log 2>&1 &
+nohup gunicorn -w 2 -b 0.0.0.0:8083 app:app >/var/log/uniti-cron.log 2>&1 &
 
 ## generate key
 ssh-keygen -t ed25519 -C "signals-repo" -f ~/.ssh/id_signals
