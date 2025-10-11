@@ -38,6 +38,7 @@ job_state: Dict[str, Any] = {
     "is_running": False,
     "current_trigger": None,
     "last_run_at": None,
+    "last_run_display": None,
     "last_success": None,
     "last_message": "",
     "run_count": 0,
@@ -62,7 +63,14 @@ schedule_state: Dict[str, Any] = {
 
 
 def _format_display_time(dt: datetime) -> str:
-    return dt.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+    local_dt = dt.astimezone(LOCAL_TZ)
+    date_part = local_dt.strftime("%d %b, %Y %I:%M")
+    ampm = local_dt.strftime("%p").lower()
+    formatted = f"{date_part}{ampm}"
+    tz_name = local_dt.tzname()
+    if tz_name:
+        formatted = f"{formatted} {tz_name}"
+    return formatted
 
 
 def _ensure_scheduler_started() -> None:
@@ -81,10 +89,12 @@ def _job_event_listener(event: JobExecutionEvent) -> None:
     if event.job_id not in {CRON_JOB_ID, DAILY_JOB_ID} or not event.exception:
         return
 
-    now = datetime.now(LOCAL_TZ).isoformat()
+    current_time = datetime.now(LOCAL_TZ)
+    now = current_time.isoformat()
     with _state_lock:
         job_state["is_running"] = False
         job_state["last_run_at"] = now
+        job_state["last_run_display"] = _format_display_time(current_time)
         job_state["last_success"] = False
         job_state["last_message"] = f"Unhandled scheduler error: {event.exception}"
         job_state["current_trigger"] = "scheduler"
@@ -102,12 +112,14 @@ def _mark_job_start(trigger: str) -> bool:
 
 def _finalize_job_run(success: bool, message: str, trigger: str, details: Optional[Dict[str, Any]]) -> None:
     """Persist the outcome of a job run."""
-    now = datetime.now(LOCAL_TZ).isoformat()
+    current_time = datetime.now(LOCAL_TZ)
+    now = current_time.isoformat()
     ending_message = message or ("Job completed successfully." if success else "Job finished.")
 
     with _state_lock:
         job_state["is_running"] = False
         job_state["last_run_at"] = now
+        job_state["last_run_display"] = _format_display_time(current_time)
         job_state["last_success"] = success
         job_state["last_message"] = ending_message
         job_state["current_trigger"] = trigger
@@ -231,6 +243,7 @@ def _get_scheduler_status() -> Dict[str, Any]:
             "is_running": job_state["is_running"],
             "current_trigger": job_state["current_trigger"],
             "last_run_at": job_state["last_run_at"],
+            "last_run_display": job_state["last_run_display"],
             "last_success": job_state["last_success"],
             "last_message": job_state["last_message"],
             "run_count": job_state["run_count"],
@@ -252,6 +265,7 @@ def _get_scheduler_status() -> Dict[str, Any]:
     server_now = datetime.now(LOCAL_TZ)
     snapshot["scheduler_running"] = _scheduler_started and scheduler.running
     snapshot["server_time"] = server_now.isoformat()
+    snapshot["server_time_display"] = _format_display_time(server_now)
     snapshot["server_timezone"] = server_now.tzname()
     offset = server_now.utcoffset()
     snapshot["server_utc_offset_minutes"] = int(offset.total_seconds() // 60) if offset else 0

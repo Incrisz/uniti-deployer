@@ -430,18 +430,36 @@
         }, 5000);
       }
 
+      const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+      function formatIsoToDisplay(value) {
+        if (!value) {
+          return "";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return value;
+        }
+        const day = String(date.getDate()).padStart(2, "0");
+        const month = MONTH_NAMES[date.getMonth()] || "";
+        const year = date.getFullYear();
+        let hours = date.getHours();
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const suffix = hours >= 12 ? "pm" : "am";
+        hours = hours % 12;
+        if (hours === 0) {
+          hours = 12;
+        }
+        const hourText = String(hours).padStart(2, "0");
+        return `${day} ${month}, ${year} ${hourText}:${minutes}${suffix}`;
+      }
+
       function formatTimestamp(value) {
         if (!value) {
           return "—";
         }
-        return value;
-      }
-
-      function formatServerClock(value) {
-        if (!value) {
-          return "—";
-        }
-        return value;
+        const display = formatIsoToDisplay(value);
+        return display || value;
       }
 
       function formatDetails(message, details) {
@@ -537,7 +555,9 @@
           return;
         }
 
-        serverTimeLabel.textContent = formatServerClock(data.server_time);
+        const serverClockDisplay =
+          data.server_time_display || (data.server_time ? formatIsoToDisplay(data.server_time) : "");
+        serverTimeLabel.textContent = serverClockDisplay || "—";
         serverOffsetMinutes = Number.isFinite(data.server_utc_offset_minutes) ? data.server_utc_offset_minutes : 0;
 
         const tzName = data.server_timezone || "Unknown";
@@ -554,13 +574,13 @@
         const cronEnabled = Boolean(cronData.enabled);
         cronBadge.textContent = cronEnabled ? "Active" : "Stopped";
         cronBadge.dataset.state = cronEnabled ? "active" : "inactive";
-        const cronNextDisplay = cronData.next_run_display || formatTimestamp(cronData.next_run);
+        const cronNextDisplay = cronData.next_run_display || formatIsoToDisplay(cronData.next_run);
         cronNextRunLabel.textContent = cronNextDisplay ? `Next: ${cronNextDisplay}` : "";
 
         const dailyEnabled = Boolean(dailyData.enabled);
         dailyBadge.textContent = dailyEnabled ? "Active" : "Stopped";
         dailyBadge.dataset.state = dailyEnabled ? "active" : "inactive";
-        const dailyNextDisplay = dailyData.next_run_display || formatTimestamp(dailyData.next_run);
+        const dailyNextDisplay = dailyData.next_run_display || formatIsoToDisplay(dailyData.next_run);
         dailyNextRunLabel.textContent = dailyNextDisplay ? `Next: ${dailyNextDisplay}` : "";
 
         const schedulerActive = cronEnabled || dailyEnabled || Boolean(data.is_running);
@@ -587,7 +607,9 @@
           ? validNextCandidates[0].display || formatTimestamp(validNextCandidates[0].iso)
           : "—";
 
-        lastRunLabel.textContent = data.last_run_at ? formatTimestamp(data.last_run_at) : "Never";
+        const lastRunDisplay =
+          data.last_run_display || (data.last_run_at ? formatIsoToDisplay(data.last_run_at) : "");
+        lastRunLabel.textContent = lastRunDisplay || "Never";
         lastResultText.textContent = data.last_message || "";
         runCountLabel.textContent = data.run_count ?? 0;
 
