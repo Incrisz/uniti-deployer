@@ -289,8 +289,13 @@
             <input type="time" name="daily-time" id="daily-time" />
           </label>
           <p class="helper">
-            Select a daily server time using 24-hour format (e.g., <code>21:00</code> for 9&nbsp;PM). Saving this schedule
-            replaces any cron expression. The job will run once per day at the selected time.
+            Select a daily server time using 24-hour format (e.g., <code>21:00</code>). Saving this schedule replaces any
+            cron expression. The job runs once per day at that server time.
+          </p>
+          <p class="helper">
+            Server timezone: <span id="server-timezone-label">—</span>. Your timezone: <span id="browser-timezone">—</span>.
+            Local equivalent: <span id="daily-local-equivalent">—</span>. Times follow the server clock, which may lead to a
+            difference from your local computer.
           </p>
           <div class="button-row">
             <button type="submit" id="save-daily">Save &amp; Start Daily</button>
@@ -311,6 +316,10 @@
           <div class="status-line">
             <strong>Server time:</strong>
             <span id="server-time">—</span>
+          </div>
+          <div class="status-line">
+            <strong>Server timezone:</strong>
+            <span id="server-timezone-status">—</span>
           </div>
           <div class="status-line">
             <strong>Cron schedule:</strong>
@@ -380,13 +389,30 @@
       const lastResultText = document.getElementById("last-result");
       const runCountLabel = document.getElementById("run-count");
       const serverTimeLabel = document.getElementById("server-time");
+      const serverTimezoneLabel = document.getElementById("server-timezone-label");
+      const serverTimezoneStatus = document.getElementById("server-timezone-status");
+      const browserTimezoneLabel = document.getElementById("browser-timezone");
+      const dailyLocalEquivalentLabel = document.getElementById("daily-local-equivalent");
       const output = document.getElementById("output");
 
       let flashTimeoutId = null;
       let scheduleInitialized = false;
       let dailyInitialized = false;
+      let serverOffsetMinutes = 0;
 
       const cronFields = ["minute", "hour", "day_of_month", "month", "day_of_week"];
+      const browserTimezone = (() => {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone || "Local";
+        } catch (_error) {
+          return "Local";
+        }
+      })();
+
+      if (browserTimezoneLabel) {
+        browserTimezoneLabel.textContent = browserTimezone;
+      }
+      const browserOffsetMinutes = -new Date().getTimezoneOffset();
 
       function setFlash(message, state = "info") {
         if (!message) {
@@ -461,6 +487,36 @@
         return lines.join("\n\n");
       }
 
+      function computeLocalEquivalent(timeValue) {
+        if (!timeValue || typeof timeValue !== "string") {
+          return "";
+        }
+        const parts = timeValue.split(":");
+        if (parts.length < 2) {
+          return "";
+        }
+        const hours = Number.parseInt(parts[0], 10);
+        const minutes = Number.parseInt(parts[1], 10);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+          return "";
+        }
+        const totalMinutes = hours * 60 + minutes;
+        const utcMinutes = totalMinutes - serverOffsetMinutes;
+        let localMinutes = utcMinutes + browserOffsetMinutes;
+        localMinutes = ((localMinutes % 1440) + 1440) % 1440;
+        const localHours = Math.floor(localMinutes / 60);
+        const localMins = localMinutes % 60;
+        return `${String(localHours).padStart(2, "0")}:${String(localMins).padStart(2, "0")}`;
+      }
+
+      function updateDailyLocalEquivalent(value) {
+        if (!dailyLocalEquivalentLabel) {
+          return;
+        }
+        const equivalence = computeLocalEquivalent(value);
+        dailyLocalEquivalentLabel.textContent = equivalence || "—";
+      }
+
       function setButtonLoading(button, isLoading, label, loadingLabel, unlockOnFinish = true) {
         if (isLoading) {
           button.disabled = true;
@@ -482,6 +538,15 @@
         }
 
         serverTimeLabel.textContent = formatServerClock(data.server_time);
+        serverOffsetMinutes = Number.isFinite(data.server_utc_offset_minutes) ? data.server_utc_offset_minutes : 0;
+
+        const tzName = data.server_timezone || "Unknown";
+        if (serverTimezoneLabel) {
+          serverTimezoneLabel.textContent = tzName;
+        }
+        if (serverTimezoneStatus) {
+          serverTimezoneStatus.textContent = tzName;
+        }
 
         const cronData = data.cron || {};
         const dailyData = data.daily || {};
@@ -558,6 +623,7 @@
           dailyInput.value = dailyData.time;
           dailyInitialized = true;
         }
+        updateDailyLocalEquivalent(dailyInput ? dailyInput.value : "");
 
         const jobRunning = Boolean(data.is_running);
         runBtn.textContent = jobRunning ? "Job Running…" : "Run Job Now";
@@ -633,6 +699,10 @@
       });
 
       if (dailyForm && dailyInput && saveDailyBtn && stopDailyBtn) {
+        dailyInput.addEventListener("input", () => {
+          updateDailyLocalEquivalent(dailyInput.value);
+        });
+
         dailyForm.addEventListener("submit", async (event) => {
           event.preventDefault();
           const value = dailyInput.value;

@@ -249,8 +249,12 @@ def _get_scheduler_status() -> Dict[str, Any]:
             },
         }
 
+    server_now = datetime.now(LOCAL_TZ)
     snapshot["scheduler_running"] = _scheduler_started and scheduler.running
-    snapshot["server_time"] = datetime.now(LOCAL_TZ).isoformat()
+    snapshot["server_time"] = server_now.isoformat()
+    snapshot["server_timezone"] = server_now.tzname()
+    offset = server_now.utcoffset()
+    snapshot["server_utc_offset_minutes"] = int(offset.total_seconds() // 60) if offset else 0
 
     next_candidates = []
     if _scheduler_started:
