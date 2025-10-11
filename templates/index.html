@@ -281,7 +281,7 @@
         <div id="flash" class="hidden" data-state="info"></div>
       </section>
 
-      <!-- <section>
+      <section>
         <h2>Daily Time Scheduler</h2>
         <form id="daily-form" autocomplete="off">
           <label>
@@ -297,7 +297,7 @@
             <button type="button" class="secondary" id="stop-daily">Stop Daily</button>
           </div>
         </form>
-      </section> -->
+      </section>
 
       <section>
         <h2>Manual Run</h2>
@@ -632,56 +632,60 @@
         }
       });
 
-      dailyForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const value = dailyInput.value;
-        if (!value) {
-          setFlash("Please provide a daily time value.", "error");
-          return;
-        }
-        setButtonLoading(saveDailyBtn, true, "Save & Start Daily", "Saving…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/daily", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ time: value }),
-          });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to save daily schedule.");
+      if (dailyForm && dailyInput && saveDailyBtn && stopDailyBtn) {
+        dailyForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const value = dailyInput.value;
+          if (!value) {
+            setFlash("Please provide a daily time value.", "error");
+            return;
           }
-          dailyInitialized = true;
-          renderStatus(data);
-          setFlash("Daily schedule saved and started.", "success");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(saveDailyBtn, false, "Save & Start Daily");
-        }
-      });
+          setButtonLoading(saveDailyBtn, true, "Save & Start Daily", "Saving…");
+          setFlash("");
+          try {
+            const response = await fetch("/job/daily", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ time: value }),
+            });
+            const data = await response.json();
+            if (!response.ok || data.success === false) {
+              throw new Error(data.error || "Unable to save daily schedule.");
+            }
+            dailyInitialized = true;
+            renderStatus(data);
+            setFlash("Daily schedule saved and started.", "success");
+          } catch (error) {
+            setFlash(error.message, "error");
+          } finally {
+            setButtonLoading(saveDailyBtn, false, "Save & Start Daily");
+          }
+        });
 
-      stopDailyBtn.addEventListener("click", async () => {
-        setButtonLoading(stopDailyBtn, true, "Stop Daily", "Stopping…");
-        setFlash("");
-        try {
-          const response = await fetch("/job/stop", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "daily" }),
-          });
-          const data = await response.json();
-          if (!response.ok || data.success === false) {
-            throw new Error(data.error || "Unable to stop daily schedule.");
+        stopDailyBtn.addEventListener("click", async () => {
+          setButtonLoading(stopDailyBtn, true, "Stop Daily", "Stopping…");
+          setFlash("");
+          try {
+            const response = await fetch("/job/stop", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "daily" }),
+            });
+            const data = await response.json();
+            if (!response.ok || data.success === false) {
+              throw new Error(data.error || "Unable to stop daily schedule.");
+            }
+            renderStatus(data);
+            setFlash("Daily schedule stopped.", "info");
+          } catch (error) {
+            setFlash(error.message, "error");
+          } finally {
+            setButtonLoading(stopDailyBtn, false, "Stop Daily");
           }
-          renderStatus(data);
-          setFlash("Daily schedule stopped.", "info");
-        } catch (error) {
-          setFlash(error.message, "error");
-        } finally {
-          setButtonLoading(stopDailyBtn, false, "Stop Daily");
-        }
-      });
+        });
+      } else {
+        console.warn("Daily scheduling controls are missing from the page.");
+      }
 
       runBtn.addEventListener("click", async () => {
         setButtonLoading(runBtn, true, "Run Job Now", "Running…", false);
