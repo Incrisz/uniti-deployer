@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import threading
 from datetime import datetime, timedelta
+from functools import wraps
 from typing import Any, Dict, Optional
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, JobExecutionEvent
@@ -12,11 +13,55 @@ from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for
+import sqlalchemy as sa
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = (
+    os.environ.get("FLASK_SECRET_KEY")
+    or os.environ.get("SECRET_KEY")
+    or "dev-secret-key"
+)
+
+DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or "").strip()
+metadata = sa.MetaData()
+_engine: Optional[Engine] = None
+_db_warning_logged = False
+
+cron_jobs_table = sa.Table(
+    "cron_jobs",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True),
+    sa.Column("job_key", sa.String(50), nullable=False, unique=True),
+    sa.Column("schedule_type", sa.String(20), nullable=False),
+    sa.Column("minute", sa.String(16), nullable=False, server_default="0"),
+    sa.Column("hour", sa.String(16), nullable=False, server_default="*"),
+    sa.Column("day_of_month", sa.String(16), nullable=False, server_default="*"),
+    sa.Column("month", sa.String(16), nullable=False, server_default="*"),
+    sa.Column("day_of_week", sa.String(16), nullable=False, server_default="*"),
+    sa.Column("daily_time", sa.String(16)),
+    sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("next_run", sa.DateTime(timezone=True)),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
+
+job_status_table = sa.Table(
+    "cron_job_status",
+    metadata,
+    sa.Column("id", sa.Integer, primary_key=True),
+    sa.Column("is_running", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("current_trigger", sa.String(32)),
+    sa.Column("last_run_at", sa.DateTime(timezone=True)),
+    sa.Column("last_success", sa.Boolean),
+    sa.Column("last_message", sa.Text),
+    sa.Column("run_count", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("last_details", sa.Text),
+    sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+)
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
 
@@ -62,6 +107,257 @@ schedule_state: Dict[str, Any] = {
 }
 
 
+def _get_engine() -> Optional[Engine]:
+    """Create (or reuse) a SQLAlchemy engine for the configured database."""
+    global _engine  # pylint: disable=global-statement
+    if _engine is not None:
+        return _engine
+    if not DATABASE_URL:
+        return None
+    try:
+        _engine = sa.create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to initialise database engine: {0}".format(exc))
+        _engine = None
+    return _engine
+
+
+def _ensure_seed_rows(db_engine: Engine) -> None:
+    """Ensure baseline rows exist for cron/daily schedules and status tracking."""
+    now = datetime.now(LOCAL_TZ)
+    cron_defaults = DEFAULT_SCHEDULE.copy()
+    with db_engine.begin() as connection:
+        for job_key, schedule_type in (("cron", "cron"), ("daily", "daily")):
+            exists = connection.execute(
+                sa.select(cron_jobs_table.c.id).where(cron_jobs_table.c.job_key == job_key)
+            ).first()
+            if exists:
+                continue
+            values = {
+                "job_key": job_key,
+                "schedule_type": schedule_type,
+                "minute": cron_defaults["minute"],
+                "hour": cron_defaults["hour"],
+                "day_of_month": cron_defaults["day_of_month"],
+                "month": cron_defaults["month"],
+                "day_of_week": cron_defaults["day_of_week"],
+                "daily_time": None,
+                "enabled": False,
+                "next_run": None,
+                "updated_at": now,
+            }
+            connection.execute(sa.insert(cron_jobs_table).values(**values))
+
+        status_exists = connection.execute(
+            sa.select(job_status_table.c.id).where(job_status_table.c.id == 1)
+        ).first()
+        if not status_exists:
+            connection.execute(
+                sa.insert(job_status_table).values(
+                    id=1,
+                    is_running=False,
+                    current_trigger=None,
+                    last_run_at=None,
+                    last_success=None,
+                    last_message="",
+                    run_count=0,
+                    last_details=None,
+                    updated_at=now,
+                )
+            )
+
+
+def _load_state_from_db(db_engine: Engine) -> None:
+    """Load persisted scheduler state into memory."""
+    try:
+        with db_engine.connect() as connection:
+            schedule_rows = connection.execute(sa.select(cron_jobs_table)).fetchall()
+            status_row = connection.execute(
+                sa.select(job_status_table).where(job_status_table.c.id == 1)
+            ).first()
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to load scheduler state from database: {0}".format(exc))
+        return
+
+    with _state_lock:
+        for row in schedule_rows:
+            if row.schedule_type == "cron":
+                schedule_state["cron"]["enabled"] = bool(row.enabled)
+                schedule_state["cron"]["schedule"] = {
+                    "minute": row.minute or DEFAULT_SCHEDULE["minute"],
+                    "hour": row.hour or DEFAULT_SCHEDULE["hour"],
+                    "day_of_month": row.day_of_month or DEFAULT_SCHEDULE["day_of_month"],
+                    "month": row.month or DEFAULT_SCHEDULE["month"],
+                    "day_of_week": row.day_of_week or DEFAULT_SCHEDULE["day_of_week"],
+                }
+                if row.next_run:
+                    local_next = row.next_run.astimezone(LOCAL_TZ)
+                    schedule_state["cron"]["next_run"] = local_next.isoformat()
+                    schedule_state["cron"]["next_run_display"] = _format_display_time(local_next)
+                else:
+                    schedule_state["cron"]["next_run"] = None
+                    schedule_state["cron"]["next_run_display"] = None
+            elif row.schedule_type == "daily":
+                schedule_state["daily"]["enabled"] = bool(row.enabled)
+                schedule_state["daily"]["time"] = row.daily_time
+                if row.daily_time:
+                    schedule_state["daily"]["time"] = row.daily_time
+                if row.next_run:
+                    local_next = row.next_run.astimezone(LOCAL_TZ)
+                    schedule_state["daily"]["next_run"] = local_next.isoformat()
+                    schedule_state["daily"]["next_run_display"] = _format_display_time(local_next)
+                else:
+                    schedule_state["daily"]["next_run"] = None
+                    schedule_state["daily"]["next_run_display"] = None
+
+        if status_row:
+            job_state["is_running"] = False
+            job_state["current_trigger"] = None
+            if status_row.last_run_at:
+                last_local = status_row.last_run_at.astimezone(LOCAL_TZ)
+                job_state["last_run_at"] = last_local.isoformat()
+                job_state["last_run_display"] = _format_display_time(last_local)
+            else:
+                job_state["last_run_at"] = None
+                job_state["last_run_display"] = None
+            job_state["last_success"] = status_row.last_success
+            job_state["last_message"] = status_row.last_message or ""
+            job_state["run_count"] = status_row.run_count or 0
+            if status_row.last_details:
+                try:
+                    job_state["last_details"] = json.loads(status_row.last_details)
+                except json.JSONDecodeError:
+                    job_state["last_details"] = {"raw": status_row.last_details}
+            else:
+                job_state["last_details"] = {}
+
+    try:
+        with db_engine.begin() as connection:
+            connection.execute(
+                sa.update(job_status_table)
+                .where(job_status_table.c.id == 1)
+                .values(
+                    is_running=False,
+                    current_trigger=None,
+                    updated_at=datetime.now(LOCAL_TZ),
+                )
+            )
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.warning("Unable to reset running flag in database: %s", exc)
+
+
+def _persist_job_running_state(is_running: bool, trigger: Optional[str]) -> None:
+    """Persist only the running flag and trigger information."""
+    db_engine = _get_engine()
+    if db_engine is None:
+        return
+    try:
+        with db_engine.begin() as connection:
+            connection.execute(
+                sa.update(job_status_table)
+                .where(job_status_table.c.id == 1)
+                .values(
+                    is_running=is_running,
+                    current_trigger=trigger,
+                    updated_at=datetime.now(LOCAL_TZ),
+                )
+            )
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to persist running state: %s", exc)
+
+
+def _persist_job_state_snapshot(current_time: datetime) -> None:
+    """Persist the in-memory job state to the database."""
+    db_engine = _get_engine()
+    if db_engine is None:
+        return
+    try:
+        details_payload = job_state["last_details"] or {}
+        details_text = json.dumps(details_payload)
+    except (TypeError, ValueError):
+        details_text = json.dumps({"error": "Unable to serialise job details."})
+
+    try:
+        with db_engine.begin() as connection:
+            connection.execute(
+                sa.update(job_status_table)
+                .where(job_status_table.c.id == 1)
+                .values(
+                    is_running=job_state["is_running"],
+                    current_trigger=job_state["current_trigger"],
+                    last_run_at=current_time,
+                    last_success=job_state["last_success"],
+                    last_message=job_state["last_message"],
+                    run_count=job_state["run_count"],
+                    last_details=details_text,
+                    updated_at=current_time,
+                )
+            )
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to persist job state: %s", exc)
+
+
+def _persist_cron_schedule(schedule_fields: Dict[str, str], enabled: bool, next_run: Optional[datetime]) -> None:
+    """Persist cron schedule configuration to the database."""
+    db_engine = _get_engine()
+    if db_engine is None:
+        return
+    payload = {
+        "minute": schedule_fields.get("minute", DEFAULT_SCHEDULE["minute"]),
+        "hour": schedule_fields.get("hour", DEFAULT_SCHEDULE["hour"]),
+        "day_of_month": schedule_fields.get("day_of_month", DEFAULT_SCHEDULE["day_of_month"]),
+        "month": schedule_fields.get("month", DEFAULT_SCHEDULE["month"]),
+        "day_of_week": schedule_fields.get("day_of_week", DEFAULT_SCHEDULE["day_of_week"]),
+        "daily_time": None,
+        "enabled": enabled,
+        "next_run": next_run,
+        "updated_at": datetime.now(LOCAL_TZ),
+    }
+    try:
+        with db_engine.begin() as connection:
+            connection.execute(
+                sa.update(cron_jobs_table).where(cron_jobs_table.c.job_key == "cron").values(**payload)
+            )
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to persist cron schedule: %s", exc)
+
+
+def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: Optional[datetime]) -> None:
+    """Persist daily schedule configuration to the database."""
+    db_engine = _get_engine()
+    if db_engine is None:
+        return
+
+    hour_value = DEFAULT_SCHEDULE["hour"]
+    minute_value = DEFAULT_SCHEDULE["minute"]
+    if daily_time:
+        try:
+            hour_value, minute_value = daily_time.split(":", 1)
+        except ValueError:
+            hour_value = DEFAULT_SCHEDULE["hour"]
+            minute_value = DEFAULT_SCHEDULE["minute"]
+
+    payload = {
+        "minute": minute_value,
+        "hour": hour_value,
+        "day_of_month": DEFAULT_SCHEDULE["day_of_month"],
+        "month": DEFAULT_SCHEDULE["month"],
+        "day_of_week": DEFAULT_SCHEDULE["day_of_week"],
+        "daily_time": daily_time,
+        "enabled": enabled,
+        "next_run": next_run,
+        "updated_at": datetime.now(LOCAL_TZ),
+    }
+
+    try:
+        with db_engine.begin() as connection:
+            connection.execute(
+                sa.update(cron_jobs_table).where(cron_jobs_table.c.job_key == "daily").values(**payload)
+            )
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to persist daily schedule: %s", exc)
+
+
 def _format_display_time(dt: datetime) -> str:
     local_dt = dt.astimezone(LOCAL_TZ)
     date_part = local_dt.strftime("%d %b, %Y %I:%M")
@@ -98,6 +394,7 @@ def _job_event_listener(event: JobExecutionEvent) -> None:
         job_state["last_success"] = False
         job_state["last_message"] = f"Unhandled scheduler error: {event.exception}"
         job_state["current_trigger"] = "scheduler"
+    _persist_job_state_snapshot(current_time)
 
 
 def _mark_job_start(trigger: str) -> bool:
@@ -107,6 +404,7 @@ def _mark_job_start(trigger: str) -> bool:
             return False
         job_state["is_running"] = True
         job_state["current_trigger"] = trigger
+    _persist_job_running_state(True, trigger)
     return True
 
 
@@ -125,6 +423,7 @@ def _finalize_job_run(success: bool, message: str, trigger: str, details: Option
         job_state["current_trigger"] = trigger
         job_state["run_count"] += 1
         job_state["last_details"] = dict(details) if details else {}
+    _persist_job_state_snapshot(current_time)
 
 
 def _normalize_schedule_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, str]:
@@ -177,6 +476,7 @@ def _schedule_cron_job(schedule_fields: Dict[str, str]) -> Optional[str]:
         schedule_state["cron"]["schedule"] = schedule_fields.copy()
         schedule_state["cron"]["next_run"] = iso_value
         schedule_state["cron"]["next_run_display"] = display
+    _persist_cron_schedule(schedule_fields, True, local_next)
 
     app.logger.info("Scheduled cron job with fields=%s next_run=%s", schedule_fields, display)
     return iso_value
@@ -213,6 +513,7 @@ def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
         schedule_state["daily"]["time"] = daily_time_value
         schedule_state["daily"]["next_run"] = next_iso
         schedule_state["daily"]["next_run_display"] = _format_display_time(next_local)
+    _persist_daily_schedule(daily_value, True, next_local)
 
     app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, _format_display_time(next_local))
     return next_iso
@@ -228,12 +529,21 @@ def _disable_schedule(schedule_type: str) -> None:
         except JobLookupError:
             pass
 
+    schedule_snapshot: Dict[str, Any] = {}
     with _state_lock:
         target_state = schedule_state.get(schedule_type)
         if target_state is not None:
             target_state["enabled"] = False
             target_state["next_run"] = None
             target_state["next_run_display"] = None
+            schedule_snapshot = target_state.copy()
+
+    if schedule_type == "cron":
+        cron_schedule = schedule_snapshot.get("schedule") if schedule_snapshot else DEFAULT_SCHEDULE.copy()
+        _persist_cron_schedule(cron_schedule, False, None)
+    else:
+        daily_time = schedule_snapshot.get("time") if schedule_snapshot else None
+        _persist_daily_schedule(daily_time, False, None)
 
 
 def _get_scheduler_status() -> Dict[str, Any]:

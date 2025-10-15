@@ -7,6 +7,7 @@ A lightweight Flask application that exposes a browser-based dashboard for manag
 - Python 3.9+
 - AWS CLI installed and configured with credentials that can invoke the target Lambda function
 - APScheduler dependencies (installed via `requirements.txt`)
+- PostgreSQL database available for persisting scheduler state
 
 Install dependencies:
 
@@ -26,6 +27,7 @@ Environment variables (a `.env` file is automatically loaded):
 - `LAMBDA_PAYLOAD` – JSON payload sent with each invocation. Defaults to `{}`.
 - `LAMBDA_LOG_TYPE` – value for `--log-type`. Defaults to `Tail` so the last 4 KB of logs appear in the UI.
 - `AWS_CLI_PATH` – optional path to the AWS CLI binary. Defaults to `aws`.
+- `DATABASE_URL` – PostgreSQL connection string used to persist scheduler configuration and job state. When omitted the app falls back to in-memory state (changes are lost on restart).
 
 ## Run
 
