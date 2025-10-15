@@ -483,7 +483,13 @@
       }
 
       function ensureAuthorized(response) {
-        if (response && response.status === 401) {
+        if (!response) {
+          return true;
+        }
+
+        const contentType = response.headers.get("content-type") || "";
+        const unauthorizedHtml = response.status === 200 && contentType.includes("text/html");
+        if (response.status === 401 || response.status === 403 || response.redirected || unauthorizedHtml) {
           redirectToLogin();
           return false;
         }

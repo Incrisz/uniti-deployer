@@ -843,6 +843,10 @@ def _scheduled_job_run(source: str) -> None:
     app.logger.info("Scheduled run finished with %s", status)
     if not result.get("success"):
         app.logger.error("Scheduled run failed: %s", result.get("message"))
+
+    next_run_dt: Optional[datetime] = None
+    schedule_snapshot: Dict[str, Any] = {}
+
     with _state_lock:
         if source in {"cron", "daily"} and _scheduler_started:
             job_id = CRON_JOB_ID if source == "cron" else DAILY_JOB_ID
@@ -851,9 +855,21 @@ def _scheduled_job_run(source: str) -> None:
                 run_dt = job.next_run_time.astimezone(LOCAL_TZ)
                 schedule_state[source]["next_run"] = run_dt.isoformat()
                 schedule_state[source]["next_run_display"] = _format_display_time(run_dt)
+                next_run_dt = run_dt
             else:
                 schedule_state[source]["next_run"] = None
                 schedule_state[source]["next_run_display"] = None
+                next_run_dt = None
+            schedule_snapshot = schedule_state[source].copy()
+            if source == "cron":
+                schedule_snapshot["schedule"] = schedule_state["cron"]["schedule"].copy()
+
+    if source == "cron" and schedule_snapshot:
+        cron_fields = schedule_snapshot.get("schedule") or DEFAULT_SCHEDULE.copy()
+        _persist_cron_schedule(cron_fields, bool(schedule_snapshot.get("enabled")), next_run_dt)
+    elif source == "daily" and schedule_snapshot:
+        daily_time_value = schedule_snapshot.get("time")
+        _persist_daily_schedule(daily_time_value, bool(schedule_snapshot.get("enabled")), next_run_dt)
 
 
 _initialise_state_from_database()
