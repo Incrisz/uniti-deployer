@@ -27,6 +27,11 @@ app.secret_key = (
     or "dev-secret-key"
 )
 
+STATIC_USERNAME = os.environ.get("APP_USERNAME", "admin")
+STATIC_PASSWORD = os.environ.get("APP_PASSWORD", "admin")
+SESSION_AUTH_FLAG = "user_authenticated"
+SESSION_USER_KEY = "username"
+
 DATABASE_URL = (os.environ.get("DATABASE_URL") or os.environ.get("DB_URL") or "").strip()
 metadata = sa.MetaData()
 _engine: Optional[Engine] = None
@@ -356,6 +361,65 @@ def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: 
             )
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
         app.logger.error("Failed to persist daily schedule: %s", exc)
+
+
+def _get_safe_redirect_target(target: Optional[str]) -> str:
+    """Return a safe in-app redirect target."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return url_for("index")
+
+
+def _login_redirect_response() -> Any:
+    """Redirect the user to the login page while preserving the requested path."""
+    next_target = request.full_path if request.query_string else request.path
+    next_target = next_target.rstrip("?")
+    return redirect(url_for("login", next=next_target))
+
+
+def login_required(json_response: bool = False):
+    """Decorator that enforces authentication for protected views."""
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if session.get(SESSION_AUTH_FLAG):
+                return view(*args, **kwargs)
+            if json_response:
+                return jsonify({"success": False, "error": "Unauthorized"}), 401
+            return _login_redirect_response()
+
+        return wrapped
+
+    return decorator
+
+
+def _initialise_state_from_database() -> None:
+    """Initialise scheduler state from the configured database, if available."""
+    global _db_warning_logged  # pylint: disable=global-statement
+    if not DATABASE_URL:
+        return
+
+    db_engine = _get_engine()
+    if db_engine is None:
+        if not _db_warning_logged:
+            app.logger.warning(
+                "DATABASE_URL is set but the connection could not be established. Falling back to in-memory state."
+            )
+            _db_warning_logged = True
+        return
+
+    try:
+        metadata.create_all(db_engine, checkfirst=True)
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to create database tables: %s", exc)
+        return
+
+    try:
+        _ensure_seed_rows(db_engine)
+        _load_state_from_db(db_engine)
+    except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
+        app.logger.error("Failed to prepare database state: %s", exc)
 
 
 def _format_display_time(dt: datetime) -> str:
@@ -773,12 +837,57 @@ def _scheduled_job_run(source: str) -> None:
                 schedule_state[source]["next_run_display"] = None
 
 
+_initialise_state_from_database()
+
+
 @app.route("/", methods=["GET"])
+@login_required()
 def index() -> str:
     return render_template("index.html")
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get(SESSION_AUTH_FLAG):
+        return redirect(url_for("index"))
+
+    next_target = request.args.get("next") or request.form.get("next") or url_for("index")
+    next_target = _get_safe_redirect_target(next_target)
+
+    error = None
+    username = ""
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+
+        if username == STATIC_USERNAME and password == STATIC_PASSWORD:
+            session[SESSION_AUTH_FLAG] = True
+            session[SESSION_USER_KEY] = username
+            session.permanent = False
+            return redirect(next_target)
+
+        error = "Invalid username or password. Please try again."
+
+    return render_template(
+        "login.html",
+        error=error,
+        next=next_target,
+        username=username,
+        expected_username=STATIC_USERNAME,
+    )
+
+
+@app.route("/logout", methods=["POST"])
+@login_required()
+def logout():
+    session.pop(SESSION_AUTH_FLAG, None)
+    session.pop(SESSION_USER_KEY, None)
+    return redirect(url_for("login"))
+
+
 @app.route("/job/run", methods=["POST"])
+@login_required(json_response=True)
 def run_job():
     result = _run_job("manual")
     status_code = result.pop("status_code", 200)
@@ -786,11 +895,13 @@ def run_job():
 
 
 @app.route("/job/status", methods=["GET"])
+@login_required(json_response=True)
 def job_status():
     return jsonify(_get_scheduler_status())
 
 
 @app.route("/job/schedule", methods=["POST"])
+@login_required(json_response=True)
 def update_schedule():
     payload = request.get_json(silent=True) or {}
     schedule_fields = _normalize_schedule_payload(payload)
@@ -807,6 +918,7 @@ def update_schedule():
 
 
 @app.route("/job/daily", methods=["POST"])
+@login_required(json_response=True)
 def update_daily_schedule():
     payload = request.get_json(silent=True) or {}
     raw_time = str(payload.get("time", "")).strip()
@@ -842,6 +954,7 @@ def update_daily_schedule():
 
 
 @app.route("/job/start", methods=["POST"])
+@login_required(json_response=True)
 def start_scheduler():
     payload = request.get_json(silent=True) or {}
     schedule_type = payload.get("type")
@@ -883,6 +996,7 @@ def start_scheduler():
 
 
 @app.route("/job/stop", methods=["POST"])
+@login_required(json_response=True)
 def stop_scheduler():
     payload = request.get_json(silent=True) or {}
     schedule_type = payload.get("type")

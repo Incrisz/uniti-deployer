@@ -17,6 +17,46 @@
         padding: 0;
       }
 
+      .top-bar {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 0.9rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .brand {
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .user-controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .user-label {
+        font-size: 0.9rem;
+        color: #cbd5f5;
+      }
+
+      .user-controls form {
+        margin: 0;
+      }
+
+      .logout-btn {
+        background: rgba(226, 232, 240, 0.1);
+        color: #e2e8f0;
+        border: 1px solid rgba(226, 232, 240, 0.3);
+      }
+
+      .logout-btn:hover:not(:disabled) {
+        background: rgba(226, 232, 240, 0.2);
+      }
+
       main {
         max-width: 880px;
         margin: 0 auto;
@@ -239,9 +279,18 @@
     </style>
   </head>
   <body>
+    <header class="top-bar">
+      <div class="brand">Web Cron Scheduler</div>
+      <div class="user-controls">
+        <span class="user-label">Signed in as {{ session.get('username', 'admin') }}</span>
+        <form action="/logout" method="post">
+          <button type="submit" class="logout-btn">Log Out</button>
+        </form>
+      </div>
+    </header>
     <main>
       <header>
-        <h1>Web Cron Scheduler</h1>
+        <h1>Scheduler Dashboard</h1>
         <p class="lead">
           Configure a cron-like schedule, start or stop it on demand, and trigger the job manually from the browser.
         </p>
@@ -426,6 +475,19 @@
         flashTimeoutId = setTimeout(() => {
           flash.classList.add("hidden");
         }, 5000);
+      }
+
+      function redirectToLogin() {
+        const nextTarget = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+        window.location.href = `/login?next=${nextTarget}`;
+      }
+
+      function ensureAuthorized(response) {
+        if (response && response.status === 401) {
+          redirectToLogin();
+          return false;
+        }
+        return true;
       }
 
       const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -653,6 +715,9 @@
       async function refreshStatus() {
         try {
           const response = await fetch("/job/status");
+          if (!ensureAuthorized(response)) {
+            return;
+          }
           if (!response.ok) {
             throw new Error(`Status check failed (${response.status})`);
           }
@@ -683,6 +748,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
+          if (!ensureAuthorized(response)) {
+            return;
+          }
           const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to update schedule.");
@@ -705,6 +773,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "cron" }),
           });
+          if (!ensureAuthorized(response)) {
+            return;
+          }
           const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to stop cron schedule.");
@@ -731,18 +802,21 @@
             return;
           }
           setButtonLoading(saveDailyBtn, true, "Save & Start Daily", "Saving…");
-          setFlash("");
-          try {
-            const response = await fetch("/job/daily", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ time: value }),
-            });
-            const data = await response.json();
-            if (!response.ok || data.success === false) {
-              throw new Error(data.error || "Unable to save daily schedule.");
-            }
-            dailyInitialized = true;
+        setFlash("");
+        try {
+          const response = await fetch("/job/daily", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ time: value }),
+          });
+          if (!ensureAuthorized(response)) {
+            return;
+          }
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to save daily schedule.");
+          }
+          dailyInitialized = true;
             renderStatus(data);
             setFlash("Daily schedule saved and started.", "success");
           } catch (error) {
@@ -754,18 +828,21 @@
 
         stopDailyBtn.addEventListener("click", async () => {
           setButtonLoading(stopDailyBtn, true, "Stop Daily", "Stopping…");
-          setFlash("");
-          try {
-            const response = await fetch("/job/stop", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "daily" }),
-            });
-            const data = await response.json();
-            if (!response.ok || data.success === false) {
-              throw new Error(data.error || "Unable to stop daily schedule.");
-            }
-            renderStatus(data);
+        setFlash("");
+        try {
+          const response = await fetch("/job/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "daily" }),
+          });
+          if (!ensureAuthorized(response)) {
+            return;
+          }
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || "Unable to stop daily schedule.");
+          }
+          renderStatus(data);
             setFlash("Daily schedule stopped.", "info");
           } catch (error) {
             setFlash(error.message, "error");
@@ -784,6 +861,9 @@
         setFlash("");
         try {
           const response = await fetch("/job/run", { method: "POST" });
+          if (!ensureAuthorized(response)) {
+            return;
+          }
           const data = await response.json();
           output.textContent = formatDetails(data.message, data.details);
           if (data.success) {

@@ -28,6 +28,7 @@ Environment variables (a `.env` file is automatically loaded):
 - `LAMBDA_LOG_TYPE` – value for `--log-type`. Defaults to `Tail` so the last 4 KB of logs appear in the UI.
 - `AWS_CLI_PATH` – optional path to the AWS CLI binary. Defaults to `aws`.
 - `DATABASE_URL` – PostgreSQL connection string used to persist scheduler configuration and job state. When omitted the app falls back to in-memory state (changes are lost on restart).
+- `APP_USERNAME` / `APP_PASSWORD` – optional static credentials for the login screen. Both default to `admin`.
 
 ## Run
 
@@ -42,5 +43,6 @@ Open `http://localhost:8081` to manage the scheduler:
 - **Stop Cron / Stop Daily** let you pause either schedule independently without losing its configuration.
 - **Run Job Now** executes the Lambda immediately, independent of the schedule.
 - The **Status** panel displays the current server time, cron/daily next-run timestamps, the latest Lambda response payload, AWS CLI stdout/stderr, and the decoded CloudWatch log tail when available.
+- Default login is `admin` / `admin` unless you override it with the environment variables above.
 
 To customise behaviour beyond the payload, edit `_execute_job_task` in `app.py` to adjust AWS CLI arguments or add pre/post hooks. APScheduler runs inside the Flask process, so use a process manager (Gunicorn, systemd, etc.) in production to keep the scheduler alive.

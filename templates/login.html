@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sign In · Web Cron Scheduler</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 45%, #0f172a 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        color: #0f172a;
+      }
+
+      .login-card {
+        width: min(420px, 100%);
+        background: #f8fafc;
+        border-radius: 16px;
+        padding: 2.5rem 2.25rem;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.25);
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.85rem;
+        color: #0f172a;
+      }
+
+      p.lead {
+        margin: 0;
+        color: #475569;
+        font-size: 0.95rem;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-size: 0.9rem;
+        color: #1e293b;
+      }
+
+      input {
+        padding: 0.7rem 0.85rem;
+        border-radius: 10px;
+        border: 1px solid #cbd5f5;
+        font-size: 1rem;
+        background: #ffffff;
+      }
+
+      input:focus {
+        border-color: #2563eb;
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+      }
+
+      button {
+        margin-top: 0.5rem;
+        padding: 0.8rem 1.4rem;
+        border-radius: 10px;
+        border: none;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s ease-in-out, transform 0.12s ease-in-out;
+      }
+
+      button:hover {
+        background: #1d4ed8;
+        transform: translateY(-1px);
+      }
+
+      .alert {
+        padding: 0.75rem 0.9rem;
+        border-radius: 10px;
+        background: #fee2e2;
+        color: #b91c1c;
+        font-size: 0.9rem;
+      }
+
+      .hint {
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="login-card">
+      <header>
+        <h1>Sign In</h1>
+        <p class="lead">Enter the admin credentials to access the scheduler dashboard.</p>
+      </header>
+      {% if error %}
+      <div class="alert">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="{{ url_for('login') }}">
+        <input type="hidden" name="next" value="{{ next }}" />
+        <label>
+          Username
+          <input
+            type="text"
+            name="username"
+            value="{{ username or expected_username }}"
+            autocomplete="username"
+            placeholder="admin"
+            required
+            autofocus
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            placeholder="admin"
+            required
+          />
+        </label>
+        <button type="submit">Continue</button>
+        <p class="hint">Default credentials: <strong>{{ expected_username }}</strong> / <strong>admin</strong></p>
+      </form>
+    </section>
+  </body>
+</html>
