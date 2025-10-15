@@ -634,7 +634,7 @@ def _schedule_daily_job(daily_time_value: str) -> Optional[str]:
         schedule_state["daily"]["time"] = daily_time_value
         schedule_state["daily"]["next_run"] = next_iso
         schedule_state["daily"]["next_run_display"] = _format_display_time(next_local)
-    _persist_daily_schedule(daily_value, True, next_local)
+    _persist_daily_schedule(daily_time_value, True, next_local)
 
     app.logger.info("Scheduled daily job for %s next_run=%s", daily_time_value, _format_display_time(next_local))
     return next_iso
