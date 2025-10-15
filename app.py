@@ -256,17 +256,27 @@ def _persist_job_running_state(is_running: bool, trigger: Optional[str]) -> None
     db_engine = _get_engine()
     if db_engine is None:
         return
+    payload = {
+        "is_running": is_running,
+        "current_trigger": trigger,
+        "updated_at": datetime.now(LOCAL_TZ),
+    }
     try:
         with db_engine.begin() as connection:
-            connection.execute(
-                sa.update(job_status_table)
-                .where(job_status_table.c.id == 1)
-                .values(
-                    is_running=is_running,
-                    current_trigger=trigger,
-                    updated_at=datetime.now(LOCAL_TZ),
-                )
+            result = connection.execute(
+                sa.update(job_status_table).where(job_status_table.c.id == 1).values(**payload)
             )
+            if result.rowcount == 0:
+                insert_payload = {
+                    "id": 1,
+                    "last_run_at": None,
+                    "last_success": None,
+                    "last_message": "",
+                    "run_count": 0,
+                    "last_details": None,
+                    **payload,
+                }
+                connection.execute(sa.insert(job_status_table).values(**insert_payload))
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
         app.logger.error("Failed to persist running state: %s", exc)
 
@@ -282,22 +292,25 @@ def _persist_job_state_snapshot(current_time: datetime) -> None:
     except (TypeError, ValueError):
         details_text = json.dumps({"error": "Unable to serialise job details."})
 
+    payload = {
+        "is_running": job_state["is_running"],
+        "current_trigger": job_state["current_trigger"],
+        "last_run_at": current_time,
+        "last_success": job_state["last_success"],
+        "last_message": job_state["last_message"],
+        "run_count": job_state["run_count"],
+        "last_details": details_text,
+        "updated_at": current_time,
+    }
+
     try:
         with db_engine.begin() as connection:
-            connection.execute(
-                sa.update(job_status_table)
-                .where(job_status_table.c.id == 1)
-                .values(
-                    is_running=job_state["is_running"],
-                    current_trigger=job_state["current_trigger"],
-                    last_run_at=current_time,
-                    last_success=job_state["last_success"],
-                    last_message=job_state["last_message"],
-                    run_count=job_state["run_count"],
-                    last_details=details_text,
-                    updated_at=current_time,
-                )
+            result = connection.execute(
+                sa.update(job_status_table).where(job_status_table.c.id == 1).values(**payload)
             )
+            if result.rowcount == 0:
+                insert_payload = {"id": 1, **payload}
+                connection.execute(sa.insert(job_status_table).values(**insert_payload))
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
         app.logger.error("Failed to persist job state: %s", exc)
 
@@ -320,9 +333,12 @@ def _persist_cron_schedule(schedule_fields: Dict[str, str], enabled: bool, next_
     }
     try:
         with db_engine.begin() as connection:
-            connection.execute(
+            result = connection.execute(
                 sa.update(cron_jobs_table).where(cron_jobs_table.c.job_key == "cron").values(**payload)
             )
+            if result.rowcount == 0:
+                insert_payload = {"job_key": "cron", "schedule_type": "cron", **payload}
+                connection.execute(sa.insert(cron_jobs_table).values(**insert_payload))
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
         app.logger.error("Failed to persist cron schedule: %s", exc)
 
@@ -356,9 +372,12 @@ def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: 
 
     try:
         with db_engine.begin() as connection:
-            connection.execute(
+            result = connection.execute(
                 sa.update(cron_jobs_table).where(cron_jobs_table.c.job_key == "daily").values(**payload)
             )
+            if result.rowcount == 0:
+                insert_payload = {"job_key": "daily", "schedule_type": "daily", **payload}
+                connection.execute(sa.insert(cron_jobs_table).values(**insert_payload))
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
         app.logger.error("Failed to persist daily schedule: %s", exc)
 

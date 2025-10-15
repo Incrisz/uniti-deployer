@@ -122,7 +122,7 @@
             name="username"
             value="{{ username or expected_username }}"
             autocomplete="username"
-            placeholder="admin"
+            placeholder="username"
             required
             autofocus
           />
@@ -133,12 +133,12 @@
             type="password"
             name="password"
             autocomplete="current-password"
-            placeholder="admin"
+            placeholder="password"
             required
           />
         </label>
         <button type="submit">Continue</button>
-        <p class="hint">Default credentials: <strong>{{ expected_username }}</strong> / <strong>admin</strong></p>
+        <!-- <p class="hint">Default credentials: <strong>{{ expected_username }}</strong> / <strong>admin</strong></p> -->
       </form>
     </section>
   </body>
