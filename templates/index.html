@@ -496,6 +496,23 @@
         return true;
       }
 
+      async function readJsonResponse(response) {
+        if (!ensureAuthorized(response)) {
+          return null;
+        }
+        const contentType = (response.headers.get("content-type") || "").toLowerCase();
+        if (!contentType.includes("application/json")) {
+          const text = await response.text();
+          const message = text ? text.slice(0, 200) : "Server returned a non-JSON response.";
+          throw new Error(message || "Server returned a non-JSON response.");
+        }
+        try {
+          return await response.json();
+        } catch (error) {
+          throw new Error("Unable to parse server response.");
+        }
+      }
+
       const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
       function formatIsoToDisplay(value) {
@@ -721,13 +738,13 @@
       async function refreshStatus() {
         try {
           const response = await fetch("/job/status");
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
           if (!response.ok) {
             throw new Error(`Status check failed (${response.status})`);
           }
-          const data = await response.json();
           renderStatus(data);
         } catch (error) {
           setFlash(error.message, "error");
@@ -754,10 +771,10 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
-          const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to update schedule.");
           }
@@ -779,10 +796,10 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "cron" }),
           });
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
-          const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to stop cron schedule.");
           }
@@ -815,15 +832,15 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ time: value }),
           });
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
-          const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to save daily schedule.");
           }
           dailyInitialized = true;
-            renderStatus(data);
+          renderStatus(data);
             setFlash("Daily schedule saved and started.", "success");
           } catch (error) {
             setFlash(error.message, "error");
@@ -841,15 +858,15 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ type: "daily" }),
           });
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
-          const data = await response.json();
           if (!response.ok || data.success === false) {
             throw new Error(data.error || "Unable to stop daily schedule.");
           }
           renderStatus(data);
-            setFlash("Daily schedule stopped.", "info");
+          setFlash("Daily schedule stopped.", "info");
           } catch (error) {
             setFlash(error.message, "error");
           } finally {
@@ -867,10 +884,10 @@
         setFlash("");
         try {
           const response = await fetch("/job/run", { method: "POST" });
-          if (!ensureAuthorized(response)) {
+          const data = await readJsonResponse(response);
+          if (data === null) {
             return;
           }
-          const data = await response.json();
           output.textContent = formatDetails(data.message, data.details);
           if (data.success) {
             output.dataset.status = "success";

@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     daily_time VARCHAR(16),
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     next_run TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    next_run_display VARCHAR(64),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at_display VARCHAR(64)
 );
 
 CREATE TABLE IF NOT EXISTS cron_job_status (
@@ -21,9 +23,11 @@ CREATE TABLE IF NOT EXISTS cron_job_status (
     is_running BOOLEAN NOT NULL DEFAULT FALSE,
     current_trigger VARCHAR(32),
     last_run_at TIMESTAMPTZ,
+    last_run_display VARCHAR(64),
     last_success BOOLEAN,
     last_message TEXT,
     run_count INTEGER NOT NULL DEFAULT 0,
     last_details TEXT,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at_display VARCHAR(64)
 );

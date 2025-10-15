@@ -51,7 +51,9 @@ cron_jobs_table = sa.Table(
     sa.Column("daily_time", sa.String(16)),
     sa.Column("enabled", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("next_run", sa.DateTime(timezone=True)),
+    sa.Column("next_run_display", sa.String(64)),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column("updated_at_display", sa.String(64)),
 )
 
 job_status_table = sa.Table(
@@ -61,11 +63,13 @@ job_status_table = sa.Table(
     sa.Column("is_running", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column("current_trigger", sa.String(32)),
     sa.Column("last_run_at", sa.DateTime(timezone=True)),
+    sa.Column("last_run_display", sa.String(64)),
     sa.Column("last_success", sa.Boolean),
     sa.Column("last_message", sa.Text),
     sa.Column("run_count", sa.Integer, nullable=False, server_default="0"),
     sa.Column("last_details", sa.Text),
     sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+    sa.Column("updated_at_display", sa.String(64)),
 )
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo
@@ -149,7 +153,9 @@ def _ensure_seed_rows(db_engine: Engine) -> None:
                 "daily_time": None,
                 "enabled": False,
                 "next_run": None,
+                "next_run_display": None,
                 "updated_at": now,
+                "updated_at_display": _format_display_time(now),
             }
             connection.execute(sa.insert(cron_jobs_table).values(**values))
 
@@ -163,11 +169,13 @@ def _ensure_seed_rows(db_engine: Engine) -> None:
                     is_running=False,
                     current_trigger=None,
                     last_run_at=None,
+                    last_run_display=None,
                     last_success=None,
                     last_message="",
                     run_count=0,
                     last_details=None,
                     updated_at=now,
+                    updated_at_display=_format_display_time(now),
                 )
             )
 
@@ -195,10 +203,14 @@ def _load_state_from_db(db_engine: Engine) -> None:
                     "month": row.month or DEFAULT_SCHEDULE["month"],
                     "day_of_week": row.day_of_week or DEFAULT_SCHEDULE["day_of_week"],
                 }
+                display_value = row.next_run_display
                 if row.next_run:
                     local_next = row.next_run.astimezone(LOCAL_TZ)
                     schedule_state["cron"]["next_run"] = local_next.isoformat()
-                    schedule_state["cron"]["next_run_display"] = _format_display_time(local_next)
+                    schedule_state["cron"]["next_run_display"] = display_value or _format_display_time(local_next)
+                elif display_value:
+                    schedule_state["cron"]["next_run"] = None
+                    schedule_state["cron"]["next_run_display"] = display_value
                 else:
                     schedule_state["cron"]["next_run"] = None
                     schedule_state["cron"]["next_run_display"] = None
@@ -207,10 +219,14 @@ def _load_state_from_db(db_engine: Engine) -> None:
                 schedule_state["daily"]["time"] = row.daily_time
                 if row.daily_time:
                     schedule_state["daily"]["time"] = row.daily_time
+                display_value = row.next_run_display
                 if row.next_run:
                     local_next = row.next_run.astimezone(LOCAL_TZ)
                     schedule_state["daily"]["next_run"] = local_next.isoformat()
-                    schedule_state["daily"]["next_run_display"] = _format_display_time(local_next)
+                    schedule_state["daily"]["next_run_display"] = display_value or _format_display_time(local_next)
+                elif display_value:
+                    schedule_state["daily"]["next_run"] = None
+                    schedule_state["daily"]["next_run_display"] = display_value
                 else:
                     schedule_state["daily"]["next_run"] = None
                     schedule_state["daily"]["next_run_display"] = None
@@ -221,7 +237,10 @@ def _load_state_from_db(db_engine: Engine) -> None:
             if status_row.last_run_at:
                 last_local = status_row.last_run_at.astimezone(LOCAL_TZ)
                 job_state["last_run_at"] = last_local.isoformat()
-                job_state["last_run_display"] = _format_display_time(last_local)
+                job_state["last_run_display"] = status_row.last_run_display or _format_display_time(last_local)
+            elif status_row.last_run_display:
+                job_state["last_run_at"] = None
+                job_state["last_run_display"] = status_row.last_run_display
             else:
                 job_state["last_run_at"] = None
                 job_state["last_run_display"] = None
@@ -238,13 +257,15 @@ def _load_state_from_db(db_engine: Engine) -> None:
 
     try:
         with db_engine.begin() as connection:
+            update_time = datetime.now(LOCAL_TZ)
             connection.execute(
                 sa.update(job_status_table)
                 .where(job_status_table.c.id == 1)
                 .values(
                     is_running=False,
                     current_trigger=None,
-                    updated_at=datetime.now(LOCAL_TZ),
+                    updated_at=update_time,
+                    updated_at_display=_format_display_time(update_time),
                 )
             )
     except SQLAlchemyError as exc:  # pragma: no cover - logged for visibility
@@ -256,10 +277,13 @@ def _persist_job_running_state(is_running: bool, trigger: Optional[str]) -> None
     db_engine = _get_engine()
     if db_engine is None:
         return
+    now = datetime.now(LOCAL_TZ)
+    formatted_now = _format_display_time(now)
     payload = {
         "is_running": is_running,
         "current_trigger": trigger,
-        "updated_at": datetime.now(LOCAL_TZ),
+        "updated_at": now,
+        "updated_at_display": formatted_now,
     }
     try:
         with db_engine.begin() as connection:
@@ -301,6 +325,8 @@ def _persist_job_state_snapshot(current_time: datetime) -> None:
         "run_count": job_state["run_count"],
         "last_details": details_text,
         "updated_at": current_time,
+        "last_run_display": _format_display_time(current_time),
+        "updated_at_display": _format_display_time(current_time),
     }
 
     try:
@@ -320,6 +346,10 @@ def _persist_cron_schedule(schedule_fields: Dict[str, str], enabled: bool, next_
     db_engine = _get_engine()
     if db_engine is None:
         return
+    now = datetime.now(LOCAL_TZ)
+    formatted_next_run = _format_display_time(next_run) if next_run else None
+    formatted_now = _format_display_time(now)
+
     payload = {
         "minute": schedule_fields.get("minute", DEFAULT_SCHEDULE["minute"]),
         "hour": schedule_fields.get("hour", DEFAULT_SCHEDULE["hour"]),
@@ -329,7 +359,9 @@ def _persist_cron_schedule(schedule_fields: Dict[str, str], enabled: bool, next_
         "daily_time": None,
         "enabled": enabled,
         "next_run": next_run,
-        "updated_at": datetime.now(LOCAL_TZ),
+        "next_run_display": formatted_next_run,
+        "updated_at": now,
+        "updated_at_display": formatted_now,
     }
     try:
         with db_engine.begin() as connection:
@@ -348,6 +380,8 @@ def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: 
     db_engine = _get_engine()
     if db_engine is None:
         return
+    now = datetime.now(LOCAL_TZ)
+    formatted_now = _format_display_time(now)
 
     hour_value = DEFAULT_SCHEDULE["hour"]
     minute_value = DEFAULT_SCHEDULE["minute"]
@@ -358,6 +392,8 @@ def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: 
             hour_value = DEFAULT_SCHEDULE["hour"]
             minute_value = DEFAULT_SCHEDULE["minute"]
 
+    formatted_next_run = _format_display_time(next_run) if next_run else None
+
     payload = {
         "minute": minute_value,
         "hour": hour_value,
@@ -367,7 +403,9 @@ def _persist_daily_schedule(daily_time: Optional[str], enabled: bool, next_run: 
         "daily_time": daily_time,
         "enabled": enabled,
         "next_run": next_run,
-        "updated_at": datetime.now(LOCAL_TZ),
+        "next_run_display": formatted_next_run,
+        "updated_at": now,
+        "updated_at_display": formatted_now,
     }
 
     try:
